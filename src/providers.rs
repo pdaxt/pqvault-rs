@@ -165,12 +165,30 @@ static NAME_TO_PROVIDER: LazyLock<Vec<(&'static str, &'static str)>> = LazyLock:
     ]
 });
 
+/// Check if pattern appears as a word boundary in the string.
+/// Word separators: start/end of string, underscore, hyphen, non-alphabetic.
+/// Matches: "ANTHROPIC_KEY", "MY_ANTHROPIC", "MY-ANTHROPIC", "ANTHROPIC" (exact)
+/// Does NOT match: substring in the middle of another word
+fn word_boundary_match(haystack: &str, needle: &str) -> bool {
+    if let Some(pos) = haystack.find(needle) {
+        let before_ok = pos == 0 || !haystack.as_bytes()[pos - 1].is_ascii_alphabetic();
+        let after_pos = pos + needle.len();
+        let after_ok =
+            after_pos >= haystack.len() || !haystack.as_bytes()[after_pos].is_ascii_alphabetic();
+        before_ok && after_ok
+    } else {
+        false
+    }
+}
+
 pub fn detect_provider(key_name: &str, value: &str) -> Option<String> {
     let upper = key_name.to_uppercase();
 
-    // Check name patterns
-    for (pattern, provider) in NAME_TO_PROVIDER.iter() {
-        if upper.contains(pattern) {
+    // Check name patterns — sorted longest-first to avoid greedy short matches
+    let mut sorted_patterns: Vec<&(&str, &str)> = NAME_TO_PROVIDER.iter().collect();
+    sorted_patterns.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    for (pattern, provider) in sorted_patterns {
+        if word_boundary_match(&upper, pattern) {
             return Some(provider.to_string());
         }
     }

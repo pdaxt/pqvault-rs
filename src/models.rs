@@ -129,7 +129,7 @@ pub fn category_patterns() -> Vec<(&'static str, Vec<&'static str>)> {
                 "REDIS",
                 "MONGO",
                 "DATABASE_URL",
-                "DB_",
+                "DB",
             ],
         ),
         (
@@ -140,11 +140,26 @@ pub fn category_patterns() -> Vec<(&'static str, Vec<&'static str>)> {
     ]
 }
 
+/// Check if pattern appears at a word boundary in haystack.
+/// Word separators: start/end of string, underscore, hyphen, non-alphanumeric.
+/// "AWS" matches "AWS_KEY", "MY_AWS", "MY-AWS" but NOT "MY_AWESOME".
+fn word_boundary_match(haystack: &str, needle: &str) -> bool {
+    if let Some(pos) = haystack.find(needle) {
+        let before_ok = pos == 0 || !haystack.as_bytes()[pos - 1].is_ascii_alphabetic();
+        let after_pos = pos + needle.len();
+        let after_ok =
+            after_pos >= haystack.len() || !haystack.as_bytes()[after_pos].is_ascii_alphabetic();
+        before_ok && after_ok
+    } else {
+        false
+    }
+}
+
 pub fn auto_categorize(key_name: &str) -> String {
     let upper = key_name.to_uppercase();
     for (category, patterns) in category_patterns() {
         for pattern in patterns {
-            if upper.contains(pattern) {
+            if word_boundary_match(&upper, pattern) {
                 return category.to_string();
             }
         }

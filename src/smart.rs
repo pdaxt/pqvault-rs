@@ -372,9 +372,11 @@ impl UsageTracker {
         }
 
         // Usage spike (>3x 7-day average)
-        let daily_vals: Vec<u64> = usage.daily_counts.values().copied().collect();
-        if daily_vals.len() >= 7 {
-            let last_7: Vec<u64> = daily_vals.iter().rev().take(7).copied().collect();
+        // Sort by date key to get chronological order (HashMap has random ordering)
+        let mut sorted_days: Vec<(&String, &u64)> = usage.daily_counts.iter().collect();
+        sorted_days.sort_by_key(|(k, _)| (*k).clone());
+        if sorted_days.len() >= 7 {
+            let last_7: Vec<u64> = sorted_days.iter().rev().take(7).map(|(_, v)| **v).collect();
             let avg = last_7.iter().sum::<u64>() as f64 / 7.0;
             let today_count = usage.requests_today() as f64;
             if avg > 0.0 && today_count > avg * 3.0 {

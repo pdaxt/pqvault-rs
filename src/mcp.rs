@@ -169,22 +169,23 @@ impl PqVaultServer {
         log_access("get", key, "", caller);
 
         let usage = tracker.get_usage(key);
-        let mut text = secret.value.clone();
+        let mut contents = vec![Content::text(secret.value.clone())];
         if let Some(u) = usage {
-            text.push_str(&format!(
-                "\n--- Usage: {} today | {} this month | {} total",
+            let mut usage_text = format!(
+                "Usage: {} today | {} this month | {} total",
                 u.requests_today(),
                 u.requests_this_month(),
                 u.total_requests
-            ));
+            );
             if limit_result.remaining >= 0 {
-                text.push_str(&format!(" | {} remaining", limit_result.remaining));
+                usage_text.push_str(&format!(" | {} remaining", limit_result.remaining));
             }
             if limit_result.usage_pct > 0.0 {
-                text.push_str(&format!(" | {:.0}% of limit", limit_result.usage_pct));
+                usage_text.push_str(&format!(" | {:.0}% of limit", limit_result.usage_pct));
             }
+            contents.push(Content::text(usage_text));
         }
-        text_result(text)
+        Ok(CallToolResult::success(contents))
     }
 
     #[tool(description = "List all secrets with metadata and usage stats (no values shown)")]
@@ -252,6 +253,7 @@ impl PqVaultServer {
             if k.to_lowercase().contains(&pattern)
                 || s.description.to_lowercase().contains(&pattern)
                 || s.category.to_lowercase().contains(&pattern)
+                || s.tags.iter().any(|t| t.to_lowercase().contains(&pattern))
             {
                 matches.push(format!("{} [{}] {}", k, s.category, s.description));
             }
@@ -500,6 +502,7 @@ impl PqVaultServer {
         let mut imported = 0u32;
         let mut skipped = 0u32;
         let mut results = Vec::new();
+        let mut imported_keys: Vec<(String, String)> = Vec::new(); // (name, value) for tracker
 
         if let Some(servers) = claude_data.get("mcpServers").and_then(|v| v.as_object()) {
             for (server_name, server_config) in servers {
@@ -541,8 +544,7 @@ impl PqVaultServer {
                             },
                         );
 
-                        let mut tracker = self.tracker.lock().await;
-                        tracker.ensure_key(env_name, val);
+                        imported_keys.push((env_name.clone(), val.to_string()));
 
                         imported += 1;
                         let prov_label = provider
@@ -563,7 +565,16 @@ impl PqVaultServer {
             if let Err(e) = save_vault(data) {
                 return text_result(format!("Imported but failed to save: {}", e));
             }
-            let tracker = self.tracker.lock().await;
+        }
+
+        // Release vault lock before acquiring tracker lock to prevent deadlock
+        drop(vault);
+
+        if !imported_keys.is_empty() {
+            let mut tracker = self.tracker.lock().await;
+            for (name, val) in &imported_keys {
+                tracker.ensure_key(name, val);
+            }
             tracker.save();
         }
 
