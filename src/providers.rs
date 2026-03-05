@@ -3,6 +3,18 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 #[derive(Debug, Clone)]
+pub enum AuthMethod {
+    /// Authorization: Bearer <key>
+    BearerToken,
+    /// Custom header: <header_name>: <key>
+    CustomHeader { header_name: String },
+    /// Authorization: Basic base64(<key>:)
+    BasicAuth,
+    /// ?<param_name>=<key> appended to URL
+    QueryParam { param_name: String },
+}
+
+#[derive(Debug, Clone)]
 pub struct ProviderConfig {
     pub name: String,
     pub display_name: String,
@@ -12,6 +24,9 @@ pub struct ProviderConfig {
     pub cost_per_request: f64,
     pub key_pattern: Option<String>,
     pub rotation_days: i64,
+    pub base_url: Option<String>,
+    pub auth_method: Option<AuthMethod>,
+    pub allowed_domains: Vec<String>,
 }
 
 pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(|| {
@@ -27,6 +42,11 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             cost_per_request: 0.003,
             key_pattern: Some(r"^sk-ant-".into()),
             rotation_days: 90,
+            base_url: Some("https://api.anthropic.com".into()),
+            auth_method: Some(AuthMethod::CustomHeader {
+                header_name: "x-api-key".into(),
+            }),
+            allowed_domains: vec!["api.anthropic.com".into()],
         },
     );
     m.insert(
@@ -40,6 +60,9 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             cost_per_request: 0.002,
             key_pattern: Some(r"^sk-[a-zA-Z0-9]{20,}".into()),
             rotation_days: 90,
+            base_url: Some("https://api.openai.com".into()),
+            auth_method: Some(AuthMethod::BearerToken),
+            allowed_domains: vec!["api.openai.com".into()],
         },
     );
     m.insert(
@@ -53,6 +76,11 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             cost_per_request: 0.0,
             key_pattern: Some(r"^BSA[a-zA-Z0-9]{20,}".into()),
             rotation_days: 365,
+            base_url: Some("https://api.search.brave.com".into()),
+            auth_method: Some(AuthMethod::CustomHeader {
+                header_name: "X-Subscription-Token".into(),
+            }),
+            allowed_domains: vec!["api.search.brave.com".into()],
         },
     );
     m.insert(
@@ -66,6 +94,9 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             cost_per_request: 0.0,
             key_pattern: Some(r"^(ghp_|gho_|github_pat_)".into()),
             rotation_days: 90,
+            base_url: Some("https://api.github.com".into()),
+            auth_method: Some(AuthMethod::BearerToken),
+            allowed_domains: vec!["api.github.com".into()],
         },
     );
     m.insert(
@@ -79,6 +110,11 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             cost_per_request: 0.001,
             key_pattern: Some(r"^AIza".into()),
             rotation_days: 180,
+            base_url: Some("https://www.googleapis.com".into()),
+            auth_method: Some(AuthMethod::QueryParam {
+                param_name: "key".into(),
+            }),
+            allowed_domains: vec!["*.googleapis.com".into()],
         },
     );
     m.insert(
@@ -92,6 +128,11 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             cost_per_request: 0.0,
             key_pattern: None,
             rotation_days: 365,
+            base_url: Some("https://google.serper.dev".into()),
+            auth_method: Some(AuthMethod::CustomHeader {
+                header_name: "X-API-KEY".into(),
+            }),
+            allowed_domains: vec!["google.serper.dev".into()],
         },
     );
     m.insert(
@@ -105,6 +146,9 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             cost_per_request: 0.0,
             key_pattern: Some(r"^re_".into()),
             rotation_days: 180,
+            base_url: Some("https://api.resend.com".into()),
+            auth_method: Some(AuthMethod::BearerToken),
+            allowed_domains: vec!["api.resend.com".into()],
         },
     );
     m.insert(
@@ -118,6 +162,9 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             cost_per_request: 0.0,
             key_pattern: None,
             rotation_days: 90,
+            base_url: Some("https://api.cloudflare.com".into()),
+            auth_method: Some(AuthMethod::BearerToken),
+            allowed_domains: vec!["api.cloudflare.com".into()],
         },
     );
     m.insert(
@@ -131,6 +178,9 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             cost_per_request: 0.0,
             key_pattern: Some(r"^(sk_live_|sk_test_|pk_)".into()),
             rotation_days: 30,
+            base_url: Some("https://api.stripe.com".into()),
+            auth_method: Some(AuthMethod::BearerToken),
+            allowed_domains: vec!["api.stripe.com".into()],
         },
     );
     m.insert(
@@ -144,6 +194,11 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             cost_per_request: 0.005,
             key_pattern: None,
             rotation_days: 180,
+            base_url: Some("https://api.elevenlabs.io".into()),
+            auth_method: Some(AuthMethod::CustomHeader {
+                header_name: "xi-api-key".into(),
+            }),
+            allowed_domains: vec!["api.elevenlabs.io".into()],
         },
     );
     m

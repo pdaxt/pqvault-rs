@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::Local;
+use reqwest::header::HeaderMap;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
@@ -15,6 +17,7 @@ use crate::env_gen::generate_env;
 use crate::health::check_health;
 use crate::models::{auto_categorize, SecretEntry, VaultData};
 use crate::providers::{detect_provider, get_provider, PROVIDERS};
+use crate::proxy;
 use crate::smart::{generate_dashboard, generate_key_status, UsageTracker};
 use crate::vault::{meta_file, open_vault, save_vault, vault_exists};
 
@@ -22,6 +25,7 @@ use crate::vault::{meta_file, open_vault, save_vault, vault_exists};
 pub struct PqVaultServer {
     vault: Arc<Mutex<Option<VaultData>>>,
     tracker: Arc<Mutex<UsageTracker>>,
+    http_client: reqwest::Client,
     tool_router: ToolRouter<PqVaultServer>,
 }
 
@@ -82,6 +86,42 @@ pub struct RotateParam {
     pub new_value: String,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ProxyParam {
+    /// Vault key name that holds the API credential
+    pub key: String,
+    /// HTTP method: GET, POST, PUT, PATCH, DELETE
+    pub method: String,
+    /// URL path (e.g. "/v1/balance") or full URL (e.g. "https://api.stripe.com/v1/balance")
+    pub url: String,
+    /// Request body (JSON string)
+    #[serde(default)]
+    pub body: Option<String>,
+    /// Extra headers (NOT for auth — auth is auto-injected)
+    #[serde(default)]
+    pub headers: Option<HashMap<String, String>>,
+    /// Extra query parameters
+    #[serde(default)]
+    pub query: Option<HashMap<String, String>>,
+    /// Which tool is calling (for audit trail)
+    #[serde(default)]
+    pub caller: Option<String>,
+    /// Override auth method for unknown providers: "bearer", "basic", "header:X-Key", "query:api_key"
+    #[serde(default)]
+    pub auth_override: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct WriteEnvParam {
+    /// Project name (must be registered in vault)
+    pub project: String,
+    /// Absolute path to directory where .env file will be written
+    pub directory: String,
+    /// Filename to write (default: ".env.local")
+    #[serde(default)]
+    pub filename: Option<String>,
+}
+
 fn text_result(text: String) -> Result<CallToolResult, McpError> {
     Ok(CallToolResult::success(vec![Content::text(text)]))
 }
@@ -98,6 +138,7 @@ impl PqVaultServer {
         Self {
             vault: Arc::new(Mutex::new(vault_data)),
             tracker: Arc::new(Mutex::new(UsageTracker::new())),
+            http_client: reqwest::Client::new(),
             tool_router: Self::tool_router(),
         }
     }
@@ -592,6 +633,193 @@ impl PqVaultServer {
         text_result(text)
     }
 
+    #[tool(
+        description = "Proxy an API call through the vault — key is injected as auth, never exposed to the caller. Use this instead of vault_get when you need to call an external API."
+    )]
+    async fn vault_proxy(
+        &self,
+        Parameters(params): Parameters<ProxyParam>,
+    ) -> Result<CallToolResult, McpError> {
+        let vault = self.vault.lock().await;
+        let data = vault.as_ref().ok_or_else(|| {
+            McpError::internal_error("Vault not initialized.", None)
+        })?;
+
+        let key = &params.key;
+        let caller = params.caller.as_deref().unwrap_or("mcp");
+
+        let secret = match data.secrets.get(key.as_str()) {
+            Some(s) => s,
+            None => return text_result(format!("PROXY ERROR: Key not found: {}", key)),
+        };
+
+        // Rate limit check
+        let mut tracker = self.tracker.lock().await;
+        tracker.ensure_key(key, &secret.value);
+        let limit_result = tracker.check_rate_limit(key);
+        if !limit_result.allowed {
+            tracker.save();
+            log_access("proxy_blocked", key, "", caller);
+            return text_result(format!("PROXY ERROR: RATE LIMITED — {}", limit_result.reason));
+        }
+
+        // Detect provider and get auth config
+        let provider_name = detect_provider(key, &secret.value);
+        let provider = provider_name.as_deref().and_then(get_provider);
+
+        // Determine auth method
+        let auth_method = if let Some(ref override_str) = params.auth_override {
+            proxy::parse_auth_override(override_str)
+                .map_err(|e| McpError::internal_error(format!("PROXY ERROR: {}", e), None))?
+        } else {
+            provider
+                .and_then(|p| p.auth_method.clone())
+                .ok_or_else(|| {
+                    McpError::internal_error(
+                        "PROXY ERROR: No auth method for this key — use auth_override param (e.g. \"bearer\", \"header:X-Api-Key\")",
+                        None,
+                    )
+                })?
+        };
+
+        // Resolve URL
+        let mut url = proxy::resolve_url(&params.url, provider)
+            .map_err(|e| McpError::internal_error(format!("PROXY ERROR: {}", e), None))?;
+
+        // Get allowed domains
+        let allowed_domains = if let Some(p) = provider {
+            &p.allowed_domains
+        } else {
+            // No provider — require the URL to be a full HTTPS URL
+            // We'll validate it's HTTPS but skip domain check for unknown providers
+            &vec![]
+        };
+
+        // SSRF validation (skip domain check only for unknown providers with full URL)
+        if !allowed_domains.is_empty() {
+            proxy::validate_url(&url, allowed_domains)
+                .map_err(|e| McpError::internal_error(format!("PROXY ERROR: {}", e), None))?;
+        } else {
+            // For unknown providers, still enforce HTTPS and no-localhost
+            proxy::validate_url(
+                &url,
+                &[url.host_str().unwrap_or("").to_string()],
+            )
+            .map_err(|e| McpError::internal_error(format!("PROXY ERROR: {}", e), None))?;
+        }
+
+        // Parse method
+        let method = proxy::parse_method(&params.method)
+            .map_err(|e| McpError::internal_error(format!("PROXY ERROR: {}", e), None))?;
+
+        // Inject auth
+        let mut headers = HeaderMap::new();
+        proxy::inject_auth(&mut headers, &mut url, &secret.value, &auth_method)
+            .map_err(|e| McpError::internal_error(format!("PROXY ERROR: {}", e), None))?;
+
+        // Record access and save before making the HTTP call
+        tracker.record_access(key, caller);
+        tracker.check_smart_alerts(key, &secret.rotated, secret.rotation_days);
+        tracker.save();
+        drop(tracker);
+        drop(vault);
+
+        log_access("proxy", key, "", caller);
+
+        // Execute request
+        let result = proxy::execute_proxy(
+            &self.http_client,
+            method,
+            url,
+            headers,
+            params.body,
+            params.headers.as_ref(),
+            params.query.as_ref(),
+        )
+        .await
+        .map_err(|e| McpError::internal_error(format!("PROXY ERROR: {}", e), None))?;
+
+        text_result(result)
+    }
+
+    #[tool(
+        description = "Write .env file for a project directly to disk — secret values are written to file but NEVER returned to the caller. Use this to set up a project's environment without exposing keys."
+    )]
+    async fn vault_write_env(
+        &self,
+        Parameters(params): Parameters<WriteEnvParam>,
+    ) -> Result<CallToolResult, McpError> {
+        let vault = self.vault.lock().await;
+        let data = vault.as_ref().ok_or_else(|| {
+            McpError::internal_error("Vault not initialized.", None)
+        })?;
+
+        // Generate env content
+        let env_content = match generate_env(data, &params.project) {
+            Ok(content) => content,
+            Err(e) => return text_result(e),
+        };
+
+        let dir = std::path::Path::new(&params.directory);
+
+        // Validate directory exists
+        if !dir.exists() || !dir.is_dir() {
+            return text_result(format!(
+                "Directory does not exist: {}",
+                params.directory
+            ));
+        }
+
+        // Validate path safety — no traversal outside expected locations
+        let canonical = dir.canonicalize().map_err(|e| {
+            McpError::internal_error(format!("Cannot resolve path: {}", e), None)
+        })?;
+        let canonical_str = canonical.to_string_lossy();
+        if canonical_str.starts_with("/etc")
+            || canonical_str.starts_with("/usr")
+            || canonical_str.starts_with("/var")
+            || canonical_str.starts_with("/System")
+            || canonical_str.contains("/.ssh")
+            || canonical_str.contains("/.gnupg")
+        {
+            return text_result(format!(
+                "Refusing to write env file to sensitive path: {}",
+                canonical_str
+            ));
+        }
+
+        let filename = params.filename.as_deref().unwrap_or(".env.local");
+        let filepath = canonical.join(filename);
+
+        // Count secrets (lines starting with a key=value, not comments or empty)
+        let secret_count = env_content
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .count();
+
+        // Write file
+        std::fs::write(&filepath, &env_content).map_err(|e| {
+            McpError::internal_error(format!("Failed to write env file: {}", e), None)
+        })?;
+
+        // Set permissions to 0600
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(
+                &filepath,
+                std::fs::Permissions::from_mode(0o600),
+            );
+        }
+
+        log_access("write_env", "", &params.project, "mcp");
+        text_result(format!(
+            "Wrote {} secrets to {}",
+            secret_count,
+            filepath.display()
+        ))
+    }
+
     #[tool(description = "Delete a secret from the vault and remove all usage data")]
     async fn vault_delete(
         &self,
@@ -631,6 +859,6 @@ impl ServerHandler for PqVaultServer {
         )
         .with_server_info(Implementation::new("pqvault", "2.0.0"))
         .with_protocol_version(ProtocolVersion::V_2024_11_05)
-        .with_instructions("PQVault: Quantum-proof centralized secrets management. Tools: vault_status, vault_get, vault_list, vault_search, vault_health, vault_project_env, vault_add, vault_rotate, vault_dashboard, vault_usage, vault_import_claude, vault_delete.".to_string())
+        .with_instructions("PQVault: Quantum-proof centralized secrets management. Tools: vault_status, vault_get, vault_list, vault_search, vault_health, vault_project_env, vault_add, vault_rotate, vault_dashboard, vault_usage, vault_import_claude, vault_delete, vault_proxy (call APIs without seeing keys), vault_write_env (write .env files without exposing values). PREFER vault_proxy over vault_get when calling external APIs — it injects auth automatically and never exposes the key value.".to_string())
     }
 }

@@ -30,6 +30,11 @@ keyring = { version = "3", features = ["apple-native"] }
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# HTTP Proxy
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+url = "2"
+base64 = "0.22"
+
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }
 regex = "1"

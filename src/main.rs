@@ -11,6 +11,7 @@ mod keychain;
 mod mcp;
 mod models;
 mod providers;
+mod proxy;
 mod smart;
 mod vault;
 
