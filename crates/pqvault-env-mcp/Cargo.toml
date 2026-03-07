@@ -1,0 +1,22 @@
+[package]
+name = "pqvault-env-mcp"
+version.workspace = true
+edition.workspace = true
+description = "PQVault env MCP server: vault_project_env, vault_write_env, vault_rotate"
+
+[[bin]]
+name = "pqvault-env-mcp"
+path = "src/main.rs"
+
+[dependencies]
+pqvault-core = { workspace = true }
+rmcp = { workspace = true }
+tokio = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

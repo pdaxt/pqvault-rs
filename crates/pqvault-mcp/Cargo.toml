@@ -1,0 +1,22 @@
+[package]
+name = "pqvault-mcp"
+version.workspace = true
+edition.workspace = true
+description = "PQVault core MCP server: vault_status, vault_get, vault_list, vault_search, vault_add, vault_delete, vault_import_claude"
+
+[[bin]]
+name = "pqvault-mcp"
+path = "src/main.rs"
+
+[dependencies]
+pqvault-core = { workspace = true }
+rmcp = { workspace = true }
+tokio = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

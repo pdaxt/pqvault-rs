@@ -1,0 +1,22 @@
+[package]
+name = "pqvault-health-mcp"
+version.workspace = true
+edition.workspace = true
+description = "PQVault health MCP server: vault_health, vault_dashboard, vault_usage"
+
+[[bin]]
+name = "pqvault-health-mcp"
+path = "src/main.rs"
+
+[dependencies]
+pqvault-core = { workspace = true }
+rmcp = { workspace = true }
+tokio = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

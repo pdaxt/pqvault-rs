@@ -1,2 +1,6 @@
 /target
 Cargo.lock
+*.png
+*.jpg
+demo.sh
+demo_mcp.py

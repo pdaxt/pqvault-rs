@@ -1,0 +1,18 @@
+[package]
+name = "pqvault-cli"
+version.workspace = true
+edition.workspace = true
+description = "PQVault CLI: command-line interface for vault management"
+
+[[bin]]
+name = "pqvault"
+path = "src/main.rs"
+
+[dependencies]
+pqvault-core = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

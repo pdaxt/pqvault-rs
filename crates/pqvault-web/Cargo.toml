@@ -1,0 +1,23 @@
+[package]
+name = "pqvault-web"
+version.workspace = true
+edition.workspace = true
+description = "PQVault web dashboard: Axum-based UI at localhost:9876"
+
+[[bin]]
+name = "pqvault-web"
+path = "src/main.rs"
+
+[dependencies]
+pqvault-core = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+clap = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
