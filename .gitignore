@@ -16,3 +16,6 @@ demo_mcp.py
 *.pfx
 credentials.json
 service-account.json
+*.db
+*.db-shm
+*.db-wal
