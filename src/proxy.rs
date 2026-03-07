@@ -314,6 +314,7 @@ mod tests {
             base_url: Some("https://api.example.com".into()),
             auth_method: Some(AuthMethod::BearerToken),
             allowed_domains: vec!["api.example.com".into()],
+            verify_path: None,
         };
         let url = resolve_url("/v1/test", Some(&provider)).unwrap();
         assert_eq!(url.as_str(), "https://api.example.com/v1/test");

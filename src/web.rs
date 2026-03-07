@@ -313,14 +313,37 @@ async fn add_handler(
     State(state): State<Arc<AppState>>,
     Json(req): Json<AddRequest>,
 ) -> (StatusCode, Json<ApiResult>) {
+    let key = req.key.trim().to_string();
+    let value = req.value.clone();
+
+    if key.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResult {
+                ok: false,
+                message: "Key name cannot be empty".to_string(),
+            }),
+        );
+    }
+
+    if value.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ApiResult {
+                ok: false,
+                message: "Secret value cannot be empty".to_string(),
+            }),
+        );
+    }
+
     let mut vault = state.vault.lock().await;
 
-    if vault.secrets.contains_key(&req.key) {
+    if vault.secrets.contains_key(&key) {
         return (
             StatusCode::CONFLICT,
             Json(ApiResult {
                 ok: false,
-                message: format!("Key '{}' already exists", req.key),
+                message: format!("Key '{}' already exists", key),
             }),
         );
     }
@@ -328,12 +351,12 @@ async fn add_handler(
     let cat = req
         .category
         .filter(|c| !c.is_empty())
-        .unwrap_or_else(|| auto_categorize(&req.key));
+        .unwrap_or_else(|| auto_categorize(&key));
 
     vault.secrets.insert(
-        req.key.clone(),
+        key.clone(),
         SecretEntry {
-            value: req.value.clone(),
+            value,
             category: cat.clone(),
             description: req.description.unwrap_or_default(),
             created: Local::now().format("%Y-%m-%d").to_string(),
@@ -362,16 +385,16 @@ async fn add_handler(
     }
 
     let mut tracker = state.tracker.lock().await;
-    tracker.ensure_key(&req.key, &req.value);
+    tracker.ensure_key(&key, &req.value);
     tracker.save();
 
-    log_access("add", &req.key, "", "web");
+    log_access("add", &key, "", "web");
 
     (
         StatusCode::CREATED,
         Json(ApiResult {
             ok: true,
-            message: format!("Added: {} [{}]", req.key, cat),
+            message: format!("Added: {} [{}]", key, cat),
         }),
     )
 }

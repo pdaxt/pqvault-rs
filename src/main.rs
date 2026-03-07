@@ -49,6 +49,11 @@ enum Commands {
         #[arg(short, long)]
         category: Option<String>,
     },
+    /// Delete a secret
+    Delete {
+        /// Key name
+        key: String,
+    },
     /// Check vault health
     Health,
     /// Start web UI dashboard
@@ -186,6 +191,24 @@ async fn main() -> Result<()> {
             );
             vault::save_vault(&data)?;
             println!("Added: {} [{}]", key, cat);
+            Ok(())
+        }
+        Commands::Delete { key } => {
+            if !vault::vault_exists() {
+                eprintln!("No vault found.");
+                return Ok(());
+            }
+            let mut data = vault::open_vault()?;
+            if data.secrets.remove(&key).is_some() {
+                // Also remove from project key lists
+                for proj in data.projects.values_mut() {
+                    proj.keys.retain(|k| k != &key);
+                }
+                vault::save_vault(&data)?;
+                println!("Deleted: {}", key);
+            } else {
+                eprintln!("Key not found: {}", key);
+            }
             Ok(())
         }
         Commands::Web { port } => {

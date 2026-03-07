@@ -374,6 +374,12 @@ mod models_tests {
             rotation_days: 30,
             projects: vec!["proj1".to_string(), "proj2".to_string()],
             tags: vec!["production".to_string(), "critical".to_string()],
+            account: None,
+            environment: None,
+            related_keys: vec![],
+            last_verified: None,
+            last_error: None,
+            key_status: "unknown".to_string(),
         };
         let json = serde_json::to_string(&entry).unwrap();
         let decoded: SecretEntry = serde_json::from_str(&json).unwrap();
@@ -399,6 +405,12 @@ mod models_tests {
                     rotation_days: 90,
                     projects: vec![],
                     tags: vec![],
+                    account: None,
+                    environment: None,
+                    related_keys: vec![],
+                    last_verified: None,
+                    last_error: None,
+                    key_status: "unknown".to_string(),
                 },
             );
         }
@@ -419,6 +431,12 @@ mod models_tests {
             rotation_days: 90,
             projects: vec![],
             tags: vec!["тег".to_string()],
+            account: None,
+            environment: None,
+            related_keys: vec![],
+            last_verified: None,
+            last_error: None,
+            key_status: "unknown".to_string(),
         };
         let json = serde_json::to_string(&entry).unwrap();
         let decoded: SecretEntry = serde_json::from_str(&json).unwrap();
@@ -555,6 +573,12 @@ mod health_tests {
             rotation_days,
             projects: projects.into_iter().map(|s| s.to_string()).collect(),
             tags: vec![],
+            account: None,
+            environment: None,
+            related_keys: vec![],
+            last_verified: None,
+            last_error: None,
+            key_status: "unknown".to_string(),
         }
     }
 
@@ -689,6 +713,12 @@ mod env_gen_tests {
             rotation_days: 90,
             projects: vec!["myapp".to_string()],
             tags: vec![],
+            account: None,
+            environment: None,
+            related_keys: vec![],
+            last_verified: None,
+            last_error: None,
+            key_status: "unknown".to_string(),
         });
         vault.secrets.insert("DB_URL".into(), SecretEntry {
             value: "postgres://localhost/db".to_string(),
@@ -700,6 +730,12 @@ mod env_gen_tests {
             rotation_days: 90,
             projects: vec!["myapp".to_string()],
             tags: vec![],
+            account: None,
+            environment: None,
+            related_keys: vec![],
+            last_verified: None,
+            last_error: None,
+            key_status: "unknown".to_string(),
         });
         vault.projects.insert("myapp".into(), ProjectEntry {
             path: "/Users/test/myapp".to_string(),
@@ -895,6 +931,12 @@ mod smart_tests {
             rotation_days: 90,
             projects: vec![],
             tags: vec![],
+            account: None,
+            environment: None,
+            related_keys: vec![],
+            last_verified: None,
+            last_error: None,
+            key_status: "unknown".to_string(),
         });
         let tracker = UsageTracker::new();
         let dashboard = generate_dashboard(&secrets, &tracker);
@@ -914,6 +956,12 @@ mod smart_tests {
             rotation_days: 90,
             projects: vec![],
             tags: vec![],
+            account: None,
+            environment: None,
+            related_keys: vec![],
+            last_verified: None,
+            last_error: None,
+            key_status: "unknown".to_string(),
         };
         let tracker = UsageTracker::new();
         let status = generate_key_status("MY_KEY", &secret, &tracker);
@@ -1042,6 +1090,12 @@ mod serialization_tests {
             rotation_days: 0,
             projects: vec![],
             tags: vec![],
+            account: None,
+            environment: None,
+            related_keys: vec![],
+            last_verified: None,
+            last_error: None,
+            key_status: "unknown".to_string(),
         });
 
         vault.secrets.insert("UNICODE_VALUE".into(), SecretEntry {
@@ -1054,6 +1108,12 @@ mod serialization_tests {
             rotation_days: 365,
             projects: vec!["proj-1".to_string(), "proj-2".to_string()],
             tags: vec!["tag1".to_string(), "tag2".to_string(), "tag3".to_string()],
+            account: None,
+            environment: None,
+            related_keys: vec![],
+            last_verified: None,
+            last_error: None,
+            key_status: "unknown".to_string(),
         });
 
         vault.secrets.insert("LONG_VALUE".into(), SecretEntry {
@@ -1066,6 +1126,12 @@ mod serialization_tests {
             rotation_days: 90,
             projects: vec![],
             tags: vec![],
+            account: None,
+            environment: None,
+            related_keys: vec![],
+            last_verified: None,
+            last_error: None,
+            key_status: "unknown".to_string(),
         });
 
         let json = serde_json::to_string_pretty(&vault).unwrap();
@@ -1096,6 +1162,12 @@ mod serialization_tests {
                     rotation_days: 90,
                     projects: vec![format!("proj_{}", i % 5)],
                     tags: vec![format!("tag_{}", i % 3)],
+                    account: None,
+                    environment: None,
+                    related_keys: vec![],
+                    last_verified: None,
+                    last_error: None,
+                    key_status: "unknown".to_string(),
                 },
             );
         }
