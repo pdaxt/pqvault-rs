@@ -1,6 +1,6 @@
 # Feature 005: Encrypted Usage Data
 
-## Status: Planned
+## Status: Done
 ## Phase: 1 (v2.1)
 ## Priority: High
 

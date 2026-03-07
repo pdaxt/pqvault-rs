@@ -1,6 +1,6 @@
 # Feature 009: Separate Web UI Files
 
-## Status: Planned
+## Status: Done
 ## Phase: 1 (v2.1)
 ## Priority: Medium
 

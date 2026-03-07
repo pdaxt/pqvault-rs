@@ -101,6 +101,15 @@ enum Commands {
         /// Shell to generate completions for
         shell: Shell,
     },
+    /// Scan a directory for leaked secrets
+    Scan {
+        /// Directory to scan (defaults to current directory)
+        #[arg(default_value = ".")]
+        dir: PathBuf,
+        /// Only show findings (no summary)
+        #[arg(long)]
+        quiet: bool,
+    },
     /// Export secrets for a project
     Export {
         /// Project name
@@ -175,6 +184,196 @@ fn parse_env_value(raw: &str) -> String {
     } else {
         trimmed.to_string()
     }
+}
+
+/// Secret patterns for scanning
+fn secret_patterns() -> Vec<(&'static str, &'static str)> {
+    vec![
+        // API Keys
+        (r"sk_live_[a-zA-Z0-9]{20,}", "Stripe Secret Key"),
+        (r"sk_test_[a-zA-Z0-9]{20,}", "Stripe Test Key"),
+        (r"pk_live_[a-zA-Z0-9]{20,}", "Stripe Publishable Key"),
+        (r"rk_live_[a-zA-Z0-9]{20,}", "Stripe Restricted Key"),
+        (r"whsec_[a-zA-Z0-9]{20,}", "Stripe Webhook Secret"),
+        // AWS
+        (r"AKIA[0-9A-Z]{16}", "AWS Access Key ID"),
+        (r#"(?i)aws.{0,20}['"][0-9a-zA-Z/+]{40}['"]"#, "AWS Secret Access Key"),
+        // GitHub
+        (r"ghp_[a-zA-Z0-9]{36}", "GitHub Personal Access Token"),
+        (r"gho_[a-zA-Z0-9]{36}", "GitHub OAuth Token"),
+        (r"ghs_[a-zA-Z0-9]{36}", "GitHub App Token"),
+        (r"ghr_[a-zA-Z0-9]{36}", "GitHub Refresh Token"),
+        (r"github_pat_[a-zA-Z0-9_]{22,}", "GitHub Fine-Grained PAT"),
+        // Google
+        (r"AIza[0-9A-Za-z\-_]{35}", "Google API Key"),
+        // Anthropic
+        (r"sk-ant-[a-zA-Z0-9\-_]{40,}", "Anthropic API Key"),
+        // OpenAI
+        (r"sk-[a-zA-Z0-9]{48,}", "OpenAI API Key"),
+        // Slack
+        (r"xoxb-[0-9]{10,}-[a-zA-Z0-9]{20,}", "Slack Bot Token"),
+        (r"xoxp-[0-9]{10,}-[a-zA-Z0-9]{20,}", "Slack User Token"),
+        (r"xapp-[0-9]{1,}-[a-zA-Z0-9]{10,}-[0-9]{10,}-[a-zA-Z0-9]{20,}", "Slack App Token"),
+        // SendGrid / Resend
+        (r"SG\.[a-zA-Z0-9_\-]{22}\.[a-zA-Z0-9_\-]{43}", "SendGrid API Key"),
+        (r"re_[a-zA-Z0-9]{20,}", "Resend API Key"),
+        // Twilio
+        (r"SK[0-9a-fA-F]{32}", "Twilio API Key"),
+        // Database URLs with passwords
+        (r"(?i)(postgres|mysql|mongodb)://[^:]+:[^@]+@[^\s]+", "Database URL with Password"),
+        // Generic high-entropy secrets
+        (r#"(?i)(api[_-]?key|api[_-]?secret|secret[_-]?key|access[_-]?token|auth[_-]?token)\s*[=:]\s*['"][a-zA-Z0-9+/=_\-]{20,}['"]"#, "Generic API Key/Secret"),
+        // Private keys
+        (r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----", "Private Key"),
+        // JWT
+        (r"eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}", "JSON Web Token"),
+    ]
+}
+
+/// Directories to always skip
+fn skip_dirs() -> Vec<&'static str> {
+    vec![
+        ".git", "node_modules", "target", ".next", "__pycache__",
+        "venv", ".venv", "dist", "build", ".cargo", ".rustup",
+        "vendor", "bower_components", ".tox", ".mypy_cache",
+    ]
+}
+
+/// File extensions to skip (binary files)
+fn skip_extensions() -> Vec<&'static str> {
+    vec![
+        "png", "jpg", "jpeg", "gif", "ico", "svg", "webp", "bmp",
+        "mp3", "mp4", "avi", "mov", "mkv", "wav", "flac",
+        "zip", "tar", "gz", "bz2", "xz", "7z", "rar",
+        "woff", "woff2", "ttf", "eot", "otf",
+        "pdf", "doc", "docx", "xls", "xlsx",
+        "exe", "dll", "so", "dylib", "o", "a",
+        "pyc", "pyo", "class", "jar",
+        "enc", "bin", "dat",
+    ]
+}
+
+fn scan_directory(dir: &std::path::Path, quiet: bool) -> Result<()> {
+    use regex::Regex;
+    use std::fs;
+
+    if !dir.exists() {
+        bail!("Directory not found: {}", dir.display());
+    }
+
+    let patterns: Vec<(Regex, &str)> = secret_patterns()
+        .into_iter()
+        .filter_map(|(pat, name)| Regex::new(pat).ok().map(|r| (r, name)))
+        .collect();
+
+    let skip_d: Vec<&str> = skip_dirs();
+    let skip_ext: Vec<&str> = skip_extensions();
+
+    let mut findings: Vec<(String, usize, String, String)> = Vec::new(); // (file, line, type, match)
+    let mut files_scanned = 0usize;
+
+    fn walk(
+        path: &std::path::Path,
+        patterns: &[(Regex, &str)],
+        skip_d: &[&str],
+        skip_ext: &[&str],
+        findings: &mut Vec<(String, usize, String, String)>,
+        files_scanned: &mut usize,
+    ) {
+        let entries = match fs::read_dir(path) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            if path.is_dir() {
+                if skip_d.contains(&name.as_str()) || name.starts_with('.') {
+                    continue;
+                }
+                walk(&path, patterns, skip_d, skip_ext, findings, files_scanned);
+                continue;
+            }
+
+            // Skip binary/media files
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if skip_ext.contains(&ext.to_lowercase().as_str()) {
+                    continue;
+                }
+            }
+
+            // Skip large files (>1MB)
+            if let Ok(meta) = fs::metadata(&path) {
+                if meta.len() > 1_048_576 {
+                    continue;
+                }
+            }
+
+            let content = match fs::read_to_string(&path) {
+                Ok(c) => c,
+                Err(_) => continue, // Skip non-UTF8 files
+            };
+
+            *files_scanned += 1;
+
+            for (line_num, line) in content.lines().enumerate() {
+                for (regex, label) in patterns {
+                    if let Some(m) = regex.find(line) {
+                        let matched = m.as_str();
+                        // Mask the match for display
+                        let display = if matched.len() > 12 {
+                            format!("{}...{}", &matched[..6], &matched[matched.len()-4..])
+                        } else {
+                            "*".repeat(matched.len())
+                        };
+                        findings.push((
+                            path.display().to_string(),
+                            line_num + 1,
+                            label.to_string(),
+                            display,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    walk(dir, &patterns, &skip_d, &skip_ext, &mut findings, &mut files_scanned);
+
+    if findings.is_empty() {
+        if !quiet {
+            println!("No secrets found in {} ({} files scanned)", dir.display(), files_scanned);
+        }
+        return Ok(());
+    }
+
+    // Sort by file then line
+    findings.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+
+    for (file, line, label, matched) in &findings {
+        println!("{}:{} [{}] {}", file, line, label, matched);
+    }
+
+    if !quiet {
+        // Summary by type
+        let mut by_type: HashMap<String, usize> = HashMap::new();
+        for (_, _, label, _) in &findings {
+            *by_type.entry(label.clone()).or_insert(0) += 1;
+        }
+        println!("\n--- Scan Summary ---");
+        println!("Files scanned: {}", files_scanned);
+        println!("Secrets found: {}", findings.len());
+        let mut sorted: Vec<_> = by_type.iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(a.1));
+        for (label, count) in sorted {
+            println!("  {}: {}", label, count);
+        }
+    }
+
+    // Exit with code 1 if findings (useful for CI)
+    std::process::exit(1);
 }
 
 #[tokio::main]
@@ -302,6 +501,9 @@ async fn main() -> Result<()> {
             let mut cmd = Cli::command();
             generate(shell, &mut cmd, "pqvault", &mut std::io::stdout());
             Ok(())
+        }
+        Commands::Scan { dir, quiet } => {
+            scan_directory(&dir, quiet)
         }
         Commands::Health => {
             let data = require_vault()?;

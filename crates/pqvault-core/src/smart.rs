@@ -5,6 +5,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::crypto::{password_decrypt, password_encrypt};
+use crate::keychain::get_master_password;
 use crate::models::SecretEntry;
 use crate::providers::{detect_provider, get_provider, PROVIDERS};
 
@@ -13,6 +15,9 @@ fn vault_dir() -> PathBuf {
 }
 fn usage_file() -> PathBuf {
     vault_dir().join("usage.json")
+}
+fn encrypted_usage_file() -> PathBuf {
+    vault_dir().join("usage.enc")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,6 +142,24 @@ impl UsageTracker {
     }
 
     fn load(&mut self) {
+        // Try encrypted format first
+        let enc_path = encrypted_usage_file();
+        if enc_path.exists() {
+            if let Ok(Some(pw)) = get_master_password() {
+                if let Ok(encrypted) = fs::read(&enc_path) {
+                    if let Ok(plaintext) = password_decrypt(&encrypted, &pw) {
+                        if let Ok(content) = String::from_utf8(plaintext) {
+                            if let Ok(raw) = serde_json::from_str::<UsageData>(&content) {
+                                self.data = raw.keys;
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fall back to plaintext (migration)
         let path = usage_file();
         if !path.exists() {
             return;
@@ -169,6 +192,26 @@ impl UsageTracker {
         };
 
         if let Ok(json) = serde_json::to_string_pretty(&payload) {
+            // Try encrypted save
+            if let Ok(Some(pw)) = get_master_password() {
+                if let Ok(encrypted) = password_encrypt(json.as_bytes(), &pw) {
+                    if fs::write(encrypted_usage_file(), &encrypted).is_ok() {
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let _ = fs::set_permissions(
+                                encrypted_usage_file(),
+                                fs::Permissions::from_mode(0o600),
+                            );
+                        }
+                        // Remove plaintext if it exists (migration complete)
+                        let _ = fs::remove_file(usage_file());
+                        return;
+                    }
+                }
+            }
+
+            // Fallback: plaintext (no password available)
             let _ = fs::write(usage_file(), json);
         }
     }
@@ -372,7 +415,6 @@ impl UsageTracker {
         }
 
         // Usage spike (>3x 7-day average)
-        // Sort by date key to get chronological order (HashMap has random ordering)
         let mut sorted_days: Vec<(&String, &u64)> = usage.daily_counts.iter().collect();
         sorted_days.sort_by_key(|(k, _)| (*k).clone());
         if sorted_days.len() >= 7 {
@@ -649,4 +691,20 @@ fn time_since(iso_str: &str) -> String {
     } else {
         iso_str.to_string()
     }
+}
+
+/// Migrate plaintext usage.json to encrypted format
+pub fn migrate_usage_to_encrypted() -> anyhow::Result<bool> {
+    let plaintext_path = usage_file();
+    if !plaintext_path.exists() {
+        return Ok(false);
+    }
+
+    // Load from plaintext
+    let tracker = UsageTracker::new();
+    // Save will auto-encrypt if password is available
+    tracker.save();
+
+    // Check if encrypted file was created
+    Ok(encrypted_usage_file().exists())
 }
