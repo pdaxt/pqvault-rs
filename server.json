@@ -1,29 +1,11 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.pdaxt/pqvault",
-  "description": "Post-quantum secrets management for AI agents. ML-KEM-768 + X25519 hybrid encryption, zero-knowledge API proxy, environment management. 18 MCP tools across 4 server crates.",
+  "description": "Post-quantum secrets manager for AI agents. ML-KEM-768 + X25519 + AES-256-GCM.",
   "repository": {
     "url": "https://github.com/pdaxt/pqvault-rs",
     "source": "github"
   },
   "version": "2.1.0",
-  "packages": [
-    {
-      "registryType": "npm",
-      "identifier": "@pdaxt/pqvault-mcp",
-      "version": "2.1.0",
-      "transport": {
-        "type": "stdio"
-      },
-      "environmentVariables": [
-        {
-          "description": "Master password for vault encryption",
-          "isRequired": true,
-          "format": "string",
-          "isSecret": true,
-          "name": "PQVAULT_PASSWORD"
-        }
-      ]
-    }
-  ]
+  "packages": []
 }

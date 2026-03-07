@@ -1,0 +1,40 @@
+{
+  "name": "@pdaxt/pqvault-mcp",
+  "version": "2.1.0",
+  "description": "Post-quantum secrets manager for AI agents. ML-KEM-768 + X25519 + AES-256-GCM.",
+  "mcpName": "io.github.pdaxt/pqvault",
+  "keywords": [
+    "mcp",
+    "secrets",
+    "post-quantum",
+    "vault",
+    "ai-agents",
+    "encryption",
+    "ml-kem",
+    "rust"
+  ],
+  "author": "Pranjal Gupta <pranjal@dataxlr8.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pdaxt/pqvault-rs"
+  },
+  "homepage": "https://github.com/pdaxt/pqvault-rs",
+  "bin": {
+    "pqvault-mcp": "./run.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
