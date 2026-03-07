@@ -14,6 +14,7 @@ mod providers;
 mod proxy;
 mod smart;
 mod vault;
+mod web;
 
 #[derive(Parser)]
 #[command(name = "pqvault", version = "2.0.0")]
@@ -50,6 +51,12 @@ enum Commands {
     },
     /// Check vault health
     Health,
+    /// Start web UI dashboard
+    Web {
+        /// Port to listen on
+        #[arg(short, long, default_value_t = 9876)]
+        port: u16,
+    },
 }
 
 #[tokio::main]
@@ -169,10 +176,24 @@ async fn main() -> Result<()> {
                     rotation_days: 90,
                     projects: vec![],
                     tags: vec![],
+                    account: None,
+                    environment: None,
+                    related_keys: vec![],
+                    last_verified: None,
+                    last_error: None,
+                    key_status: "unknown".to_string(),
                 },
             );
             vault::save_vault(&data)?;
             println!("Added: {} [{}]", key, cat);
+            Ok(())
+        }
+        Commands::Web { port } => {
+            if !vault::vault_exists() {
+                eprintln!("No vault found. Run 'pqvault init' first.");
+                return Ok(());
+            }
+            web::start_web(port).await?;
             Ok(())
         }
         Commands::Health => {

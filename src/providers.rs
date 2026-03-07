@@ -27,6 +27,8 @@ pub struct ProviderConfig {
     pub base_url: Option<String>,
     pub auth_method: Option<AuthMethod>,
     pub allowed_domains: Vec<String>,
+    /// URL path to verify key is working (relative to base_url)
+    pub verify_path: Option<String>,
 }
 
 pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(|| {
@@ -47,6 +49,7 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
                 header_name: "x-api-key".into(),
             }),
             allowed_domains: vec!["api.anthropic.com".into()],
+            verify_path: Some("/v1/models".into()),
         },
     );
     m.insert(
@@ -63,6 +66,7 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             base_url: Some("https://api.openai.com".into()),
             auth_method: Some(AuthMethod::BearerToken),
             allowed_domains: vec!["api.openai.com".into()],
+            verify_path: Some("/v1/models".into()),
         },
     );
     m.insert(
@@ -81,6 +85,7 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
                 header_name: "X-Subscription-Token".into(),
             }),
             allowed_domains: vec!["api.search.brave.com".into()],
+            verify_path: Some("/res/v1/web/search?q=test&count=1".into()),
         },
     );
     m.insert(
@@ -97,6 +102,7 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             base_url: Some("https://api.github.com".into()),
             auth_method: Some(AuthMethod::BearerToken),
             allowed_domains: vec!["api.github.com".into()],
+            verify_path: Some("/user".into()),
         },
     );
     m.insert(
@@ -115,6 +121,7 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
                 param_name: "key".into(),
             }),
             allowed_domains: vec!["*.googleapis.com".into()],
+            verify_path: None,
         },
     );
     m.insert(
@@ -133,6 +140,7 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
                 header_name: "X-API-KEY".into(),
             }),
             allowed_domains: vec!["google.serper.dev".into()],
+            verify_path: None,
         },
     );
     m.insert(
@@ -149,6 +157,7 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             base_url: Some("https://api.resend.com".into()),
             auth_method: Some(AuthMethod::BearerToken),
             allowed_domains: vec!["api.resend.com".into()],
+            verify_path: Some("/api-keys".into()),
         },
     );
     m.insert(
@@ -165,6 +174,7 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             base_url: Some("https://api.cloudflare.com".into()),
             auth_method: Some(AuthMethod::BearerToken),
             allowed_domains: vec!["api.cloudflare.com".into()],
+            verify_path: Some("/client/v4/user/tokens/verify".into()),
         },
     );
     m.insert(
@@ -181,6 +191,7 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
             base_url: Some("https://api.stripe.com".into()),
             auth_method: Some(AuthMethod::BearerToken),
             allowed_domains: vec!["api.stripe.com".into()],
+            verify_path: Some("/v1/balance".into()),
         },
     );
     m.insert(
@@ -199,6 +210,7 @@ pub static PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> = LazyLock::new(
                 header_name: "xi-api-key".into(),
             }),
             allowed_domains: vec!["api.elevenlabs.io".into()],
+            verify_path: Some("/v1/user".into()),
         },
     );
     m

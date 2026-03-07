@@ -21,6 +21,37 @@ pub struct SecretEntry {
     pub projects: Vec<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Account identity (e.g. "pranjal@dataxlr8.com", "noreply@bskiller.com")
+    #[serde(default)]
+    pub account: Option<String>,
+    /// Environment: production, development, test
+    #[serde(default)]
+    pub environment: Option<String>,
+    /// Related key names (e.g. client_id <-> client_secret)
+    #[serde(default)]
+    pub related_keys: Vec<String>,
+    /// Last time key was verified working
+    #[serde(default)]
+    pub last_verified: Option<String>,
+    /// Last error from verification
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// Key status: active, error, unknown, revoked
+    #[serde(default = "default_status")]
+    pub key_status: String,
+}
+
+fn default_status() -> String {
+    "unknown".to_string()
+}
+
+/// Generate a masked preview: first 4 + "..." + last 4 chars
+pub fn mask_value(val: &str) -> String {
+    if val.len() <= 8 {
+        "*".repeat(val.len())
+    } else {
+        format!("{}...{}", &val[..4], &val[val.len() - 4..])
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -9,3 +9,4 @@ pub mod providers;
 pub mod proxy;
 pub mod smart;
 pub mod vault;
+pub mod web;

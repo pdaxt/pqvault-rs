@@ -411,6 +411,12 @@ impl PqVaultServer {
                 rotation_days: 90,
                 projects: vec![],
                 tags: vec![],
+                account: None,
+                environment: None,
+                related_keys: vec![],
+                last_verified: None,
+                last_error: None,
+                key_status: "unknown".to_string(),
             },
         );
 
@@ -582,6 +588,12 @@ impl PqVaultServer {
                                 rotation_days: 90,
                                 projects: vec![],
                                 tags: vec![],
+                                account: None,
+                                environment: None,
+                                related_keys: vec![],
+                                last_verified: None,
+                                last_error: None,
+                                key_status: "unknown".to_string(),
                             },
                         );
 
