@@ -13,15 +13,14 @@ use tokio::sync::Mutex;
 use tracing_subscriber::EnvFilter;
 
 use pqvault_core::audit::log_access;
-use pqvault_core::models::VaultData;
 use pqvault_core::providers::{detect_provider, get_provider};
 use pqvault_core::proxy;
 use pqvault_core::smart::UsageTracker;
-use pqvault_core::vault::{open_vault, vault_exists};
+use pqvault_core::vault::VaultHolder;
 
 #[derive(Clone)]
 pub struct PqVaultProxyMcp {
-    vault: Arc<Mutex<Option<VaultData>>>,
+    vault: Arc<Mutex<VaultHolder>>,
     tracker: Arc<Mutex<UsageTracker>>,
     http_client: reqwest::Client,
     tool_router: ToolRouter<PqVaultProxyMcp>,
@@ -59,14 +58,8 @@ fn text_result(text: String) -> Result<CallToolResult, McpError> {
 #[tool_router]
 impl PqVaultProxyMcp {
     pub fn new() -> Self {
-        let vault_data = if vault_exists() {
-            open_vault().ok()
-        } else {
-            None
-        };
-
         Self {
-            vault: Arc::new(Mutex::new(vault_data)),
+            vault: Arc::new(Mutex::new(VaultHolder::new())),
             tracker: Arc::new(Mutex::new(UsageTracker::new())),
             http_client: reqwest::Client::new(),
             tool_router: Self::tool_router(),
@@ -80,8 +73,8 @@ impl PqVaultProxyMcp {
         &self,
         Parameters(params): Parameters<ProxyParam>,
     ) -> Result<CallToolResult, McpError> {
-        let vault = self.vault.lock().await;
-        let data = vault.as_ref().ok_or_else(|| {
+        let mut vault = self.vault.lock().await;
+        let data = vault.get().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
 

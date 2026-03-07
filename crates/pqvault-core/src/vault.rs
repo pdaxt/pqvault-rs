@@ -136,6 +136,62 @@ pub fn save_vault(data: &VaultData) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Auto-reloading vault holder. Checks file mtime before each access
+/// and reloads from disk if another process has updated the vault file.
+pub struct VaultHolder {
+    data: Option<VaultData>,
+    loaded_mtime: Option<std::time::SystemTime>,
+}
+
+impl VaultHolder {
+    pub fn new() -> Self {
+        let (data, mtime) = if vault_exists() {
+            let mtime = fs::metadata(vault_file())
+                .ok()
+                .and_then(|m| m.modified().ok());
+            (open_vault().ok(), mtime)
+        } else {
+            (None, None)
+        };
+        Self {
+            data,
+            loaded_mtime: mtime,
+        }
+    }
+
+    /// Get a reference to vault data, reloading from disk if stale.
+    pub fn get(&mut self) -> Option<&VaultData> {
+        self.reload_if_stale();
+        self.data.as_ref()
+    }
+
+    /// Get a mutable reference to vault data, reloading from disk if stale.
+    pub fn get_mut(&mut self) -> Option<&mut VaultData> {
+        self.reload_if_stale();
+        self.data.as_mut()
+    }
+
+    /// After saving vault to disk, update our mtime so we don't reload our own write.
+    pub fn mark_saved(&mut self) {
+        self.loaded_mtime = fs::metadata(vault_file())
+            .ok()
+            .and_then(|m| m.modified().ok());
+    }
+
+    fn reload_if_stale(&mut self) {
+        let current_mtime = fs::metadata(vault_file())
+            .ok()
+            .and_then(|m| m.modified().ok());
+        if current_mtime != self.loaded_mtime {
+            if let Ok(data) = open_vault() {
+                self.data = Some(data);
+                self.loaded_mtime = current_mtime;
+                tracing::info!("Vault reloaded from disk (file changed by another process)");
+            }
+        }
+    }
+}
+
 pub fn backup_vault() -> anyhow::Result<Option<PathBuf>> {
     if !vault_file().exists() {
         return Ok(None);

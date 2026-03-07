@@ -12,13 +12,12 @@ use tracing_subscriber::EnvFilter;
 
 use pqvault_core::audit::log_access;
 use pqvault_core::health::check_health;
-use pqvault_core::models::VaultData;
 use pqvault_core::smart::{generate_dashboard, generate_key_status, UsageTracker};
-use pqvault_core::vault::{open_vault, vault_exists};
+use pqvault_core::vault::VaultHolder;
 
 #[derive(Clone)]
 pub struct PqVaultHealthMcp {
-    vault: Arc<Mutex<Option<VaultData>>>,
+    vault: Arc<Mutex<VaultHolder>>,
     tracker: Arc<Mutex<UsageTracker>>,
     tool_router: ToolRouter<PqVaultHealthMcp>,
 }
@@ -36,14 +35,8 @@ fn text_result(text: String) -> Result<CallToolResult, McpError> {
 #[tool_router]
 impl PqVaultHealthMcp {
     pub fn new() -> Self {
-        let vault_data = if vault_exists() {
-            open_vault().ok()
-        } else {
-            None
-        };
-
         Self {
-            vault: Arc::new(Mutex::new(vault_data)),
+            vault: Arc::new(Mutex::new(VaultHolder::new())),
             tracker: Arc::new(Mutex::new(UsageTracker::new())),
             tool_router: Self::tool_router(),
         }
@@ -51,8 +44,8 @@ impl PqVaultHealthMcp {
 
     #[tool(description = "Check rotation warnings, expired keys, orphaned keys, and smart alerts")]
     async fn vault_health(&self) -> Result<CallToolResult, McpError> {
-        let vault = self.vault.lock().await;
-        let data = vault.as_ref().ok_or_else(|| {
+        let mut vault = self.vault.lock().await;
+        let data = vault.get().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
         let mut tracker = self.tracker.lock().await;
@@ -100,8 +93,8 @@ impl PqVaultHealthMcp {
 
     #[tool(description = "Full smart dashboard: all keys with usage stats, rate limits, costs, alerts")]
     async fn vault_dashboard(&self) -> Result<CallToolResult, McpError> {
-        let vault = self.vault.lock().await;
-        let data = vault.as_ref().ok_or_else(|| {
+        let mut vault = self.vault.lock().await;
+        let data = vault.get().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
         let mut tracker = self.tracker.lock().await;
@@ -122,8 +115,8 @@ impl PqVaultHealthMcp {
         &self,
         Parameters(params): Parameters<KeyParam>,
     ) -> Result<CallToolResult, McpError> {
-        let vault = self.vault.lock().await;
-        let data = vault.as_ref().ok_or_else(|| {
+        let mut vault = self.vault.lock().await;
+        let data = vault.get().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
         let key = &params.key;

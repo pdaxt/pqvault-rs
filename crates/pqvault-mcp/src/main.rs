@@ -12,14 +12,14 @@ use tokio::sync::Mutex;
 use tracing_subscriber::EnvFilter;
 
 use pqvault_core::audit::log_access;
-use pqvault_core::models::{auto_categorize, SecretEntry, VaultData};
+use pqvault_core::models::{auto_categorize, SecretEntry};
 use pqvault_core::providers::{detect_provider, PROVIDERS};
 use pqvault_core::smart::UsageTracker;
-use pqvault_core::vault::{meta_file, open_vault, save_vault, vault_exists};
+use pqvault_core::vault::{meta_file, save_vault, VaultHolder};
 
 #[derive(Clone)]
 pub struct PqVaultMcp {
-    vault: Arc<Mutex<Option<VaultData>>>,
+    vault: Arc<Mutex<VaultHolder>>,
     tracker: Arc<Mutex<UsageTracker>>,
     tool_router: ToolRouter<PqVaultMcp>,
 }
@@ -73,14 +73,8 @@ fn text_result(text: String) -> Result<CallToolResult, McpError> {
 #[tool_router]
 impl PqVaultMcp {
     pub fn new() -> Self {
-        let vault_data = if vault_exists() {
-            open_vault().ok()
-        } else {
-            None
-        };
-
         Self {
-            vault: Arc::new(Mutex::new(vault_data)),
+            vault: Arc::new(Mutex::new(VaultHolder::new())),
             tracker: Arc::new(Mutex::new(UsageTracker::new())),
             tool_router: Self::tool_router(),
         }
@@ -88,8 +82,8 @@ impl PqVaultMcp {
 
     #[tool(description = "Vault health summary: encryption info, key count, health status")]
     async fn vault_status(&self) -> Result<CallToolResult, McpError> {
-        let vault = self.vault.lock().await;
-        let data = vault.as_ref().ok_or_else(|| {
+        let mut vault = self.vault.lock().await;
+        let data = vault.get().ok_or_else(|| {
             McpError::internal_error("Vault not initialized. Run 'pqvault init'.", None)
         })?;
         let tracker = self.tracker.lock().await;
@@ -125,8 +119,8 @@ impl PqVaultMcp {
         &self,
         Parameters(params): Parameters<GetParam>,
     ) -> Result<CallToolResult, McpError> {
-        let vault = self.vault.lock().await;
-        let data = vault.as_ref().ok_or_else(|| {
+        let mut vault = self.vault.lock().await;
+        let data = vault.get().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
 
@@ -177,8 +171,8 @@ impl PqVaultMcp {
         &self,
         Parameters(params): Parameters<ListParam>,
     ) -> Result<CallToolResult, McpError> {
-        let vault = self.vault.lock().await;
-        let data = vault.as_ref().ok_or_else(|| {
+        let mut vault = self.vault.lock().await;
+        let data = vault.get().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
         let tracker = self.tracker.lock().await;
@@ -226,8 +220,8 @@ impl PqVaultMcp {
         &self,
         Parameters(params): Parameters<SearchParam>,
     ) -> Result<CallToolResult, McpError> {
-        let vault = self.vault.lock().await;
-        let data = vault.as_ref().ok_or_else(|| {
+        let mut vault = self.vault.lock().await;
+        let data = vault.get().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
         let pattern = params.pattern.to_lowercase();
@@ -257,7 +251,7 @@ impl PqVaultMcp {
         Parameters(params): Parameters<AddParam>,
     ) -> Result<CallToolResult, McpError> {
         let mut vault = self.vault.lock().await;
-        let data = vault.as_mut().ok_or_else(|| {
+        let data = vault.get_mut().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
 
@@ -304,6 +298,7 @@ impl PqVaultMcp {
         if let Err(e) = save_vault(data) {
             return text_result(format!("Failed to save vault: {}", e));
         }
+        vault.mark_saved();
 
         let provider = detect_provider(key, value);
         let mut tracker = self.tracker.lock().await;
@@ -341,7 +336,7 @@ impl PqVaultMcp {
         Parameters(params): Parameters<KeyParam>,
     ) -> Result<CallToolResult, McpError> {
         let mut vault = self.vault.lock().await;
-        let data = vault.as_mut().ok_or_else(|| {
+        let data = vault.get_mut().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
 
@@ -358,6 +353,7 @@ impl PqVaultMcp {
         if let Err(e) = save_vault(data) {
             return text_result(format!("Failed to save: {}", e));
         }
+        vault.mark_saved();
 
         log_access("delete", key, "", "mcp");
         text_result(format!("Deleted: {} [{}]", key, secret.category))
@@ -376,7 +372,7 @@ impl PqVaultMcp {
             .map_err(|e| McpError::internal_error(format!("Invalid JSON: {}", e), None))?;
 
         let mut vault = self.vault.lock().await;
-        let data = vault.as_mut().ok_or_else(|| {
+        let data = vault.get_mut().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
 
@@ -459,6 +455,7 @@ impl PqVaultMcp {
             if let Err(e) = save_vault(data) {
                 return text_result(format!("Imported but failed to save: {}", e));
             }
+            vault.mark_saved();
         }
 
         drop(vault);

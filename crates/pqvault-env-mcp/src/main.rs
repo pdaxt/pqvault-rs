@@ -13,13 +13,12 @@ use tracing_subscriber::EnvFilter;
 
 use pqvault_core::audit::log_access;
 use pqvault_core::env_gen::generate_env;
-use pqvault_core::models::VaultData;
 use pqvault_core::smart::UsageTracker;
-use pqvault_core::vault::{open_vault, save_vault, vault_exists};
+use pqvault_core::vault::{save_vault, VaultHolder};
 
 #[derive(Clone)]
 pub struct PqVaultEnvMcp {
-    vault: Arc<Mutex<Option<VaultData>>>,
+    vault: Arc<Mutex<VaultHolder>>,
     tracker: Arc<Mutex<UsageTracker>>,
     tool_router: ToolRouter<PqVaultEnvMcp>,
 }
@@ -56,14 +55,8 @@ fn text_result(text: String) -> Result<CallToolResult, McpError> {
 #[tool_router]
 impl PqVaultEnvMcp {
     pub fn new() -> Self {
-        let vault_data = if vault_exists() {
-            open_vault().ok()
-        } else {
-            None
-        };
-
         Self {
-            vault: Arc::new(Mutex::new(vault_data)),
+            vault: Arc::new(Mutex::new(VaultHolder::new())),
             tracker: Arc::new(Mutex::new(UsageTracker::new())),
             tool_router: Self::tool_router(),
         }
@@ -74,8 +67,8 @@ impl PqVaultEnvMcp {
         &self,
         Parameters(params): Parameters<ProjectParam>,
     ) -> Result<CallToolResult, McpError> {
-        let vault = self.vault.lock().await;
-        let data = vault.as_ref().ok_or_else(|| {
+        let mut vault = self.vault.lock().await;
+        let data = vault.get().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
 
@@ -95,8 +88,8 @@ impl PqVaultEnvMcp {
         &self,
         Parameters(params): Parameters<WriteEnvParam>,
     ) -> Result<CallToolResult, McpError> {
-        let vault = self.vault.lock().await;
-        let data = vault.as_ref().ok_or_else(|| {
+        let mut vault = self.vault.lock().await;
+        let data = vault.get().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
 
@@ -166,7 +159,7 @@ impl PqVaultEnvMcp {
         Parameters(params): Parameters<RotateParam>,
     ) -> Result<CallToolResult, McpError> {
         let mut vault = self.vault.lock().await;
-        let data = vault.as_mut().ok_or_else(|| {
+        let data = vault.get_mut().ok_or_else(|| {
             McpError::internal_error("Vault not initialized.", None)
         })?;
 
@@ -182,6 +175,7 @@ impl PqVaultEnvMcp {
         if let Err(e) = save_vault(data) {
             return text_result(format!("Failed to save: {}", e));
         }
+        vault.mark_saved();
 
         let tracker = self.tracker.lock().await;
         tracker.save();
