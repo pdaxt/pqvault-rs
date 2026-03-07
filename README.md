@@ -1,8 +1,14 @@
 # PQVault
 
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)](https://rust-lang.org)
+[![MCP](https://img.shields.io/badge/MCP-compatible-brightgreen)](https://modelcontextprotocol.io)
+
 **Post-quantum secrets management for AI agent workflows.**
 
-A centralized, encrypted vault for API keys and secrets. Designed for environments where multiple AI agents (Claude Code, MCP tools) need controlled access to credentials — with per-key rate limiting, usage tracking, cost estimation, key verification, and a full audit trail.
+A centralized, encrypted vault for API keys and secrets. Designed for environments where multiple AI agents need controlled access to credentials — with per-key rate limiting, usage tracking, cost estimation, key verification, and a full audit trail.
+
+Built by [Pranjal Gupta](https://github.com/pdaxt) at [DataXLR8](https://dataxlr8.ai) — part of the DataXLR8 AI infrastructure ecosystem.
 
 All secrets encrypted with hybrid **ML-KEM-768 + X25519 + AES-256-GCM**. An attacker must break both post-quantum *and* classical cryptography simultaneously to access any secret.
 
@@ -10,7 +16,7 @@ All secrets encrypted with hybrid **ML-KEM-768 + X25519 + AES-256-GCM**. An atta
 
 ## Why PQVault Exists
 
-**Problem:** AI agents need API keys. Developers scatter them across `.env` files, `~/.claude.json` env blocks, shell history, and plaintext configs. Keys get leaked, forgotten, over-used, never rotated. One agent can burn through an entire monthly quota in minutes with no visibility.
+**Problem:** AI agents need API keys. Developers scatter them across `.env` files, MCP config env blocks, shell history, and plaintext configs. Keys get leaked, forgotten, over-used, never rotated. One agent can burn through an entire monthly quota in minutes with no visibility.
 
 **Solution:** One encrypted vault. Every key access is rate-limited, usage-tracked, and audit-logged. AI agents get keys through MCP — the vault controls *which* keys, *how often*, and *who asked*.
 
@@ -22,7 +28,7 @@ All secrets encrypted with hybrid **ML-KEM-768 + X25519 + AES-256-GCM**. An atta
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ Claude Code / MCP Client                                │
+│ MCP Client (AI Agent)                                │
 │   vault_get, vault_proxy, vault_dashboard, ...          │
 └──────────────────┬──────────────────────────────────────┘
                    │ stdio JSON-RPC (MCP protocol)
@@ -341,7 +347,7 @@ codesign -s - target/release/pqvault  # macOS: ad-hoc sign to avoid Gatekeeper
 
 ### MCP Configuration
 
-Add to `~/.claude.json`:
+Add to your MCP client configuration:
 
 ```json
 {
