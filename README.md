@@ -2,7 +2,7 @@
 
 **Post-quantum secrets management for AI agent workflows.**
 
-A centralized, encrypted vault for API keys and secrets. Designed for environments where multiple AI agents (Claude Code, MCP tools) need controlled access to credentials — with per-key rate limiting, usage tracking, cost estimation, and a full audit trail.
+A centralized, encrypted vault for API keys and secrets. Designed for environments where multiple AI agents (Claude Code, MCP tools) need controlled access to credentials — with per-key rate limiting, usage tracking, cost estimation, key verification, and a full audit trail.
 
 All secrets encrypted with hybrid **ML-KEM-768 + X25519 + AES-256-GCM**. An attacker must break both post-quantum *and* classical cryptography simultaneously to access any secret.
 
@@ -21,38 +21,91 @@ All secrets encrypted with hybrid **ML-KEM-768 + X25519 + AES-256-GCM**. An atta
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│ Claude Code / MCP Client                            │
-│   vault_get, vault_add, vault_dashboard, ...        │
-└──────────────────┬──────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│ Claude Code / MCP Client                                │
+│   vault_get, vault_proxy, vault_dashboard, ...          │
+└──────────────────┬──────────────────────────────────────┘
                    │ stdio JSON-RPC (MCP protocol)
                    ▼
-┌─────────────────────────────────────────────────────┐
-│ PQVault MCP Server (Rust, rmcp 1.1)                 │
-│                                                     │
-│  ┌──────────┐  ┌───────────┐  ┌──────────────────┐ │
-│  │ 12 Tools │  │ Rate      │  │ Usage Tracker    │ │
-│  │ (MCP)    │  │ Limiter   │  │ (per-key stats)  │ │
-│  └────┬─────┘  └─────┬─────┘  └────────┬─────────┘ │
-│       │              │                  │           │
-│  ┌────▼──────────────▼──────────────────▼─────────┐ │
-│  │ Vault Engine                                   │ │
-│  │  open_vault() → decrypt → VaultData → encrypt  │ │
-│  └────────────────────┬───────────────────────────┘ │
-│                       │                             │
-│  ┌────────────────────▼───────────────────────────┐ │
-│  │ Hybrid Crypto                                  │ │
-│  │  ML-KEM-768 (PQ) + X25519 (classical)          │ │
-│  │  → HKDF-SHA256 → AES-256-GCM                   │ │
-│  └────────────────────┬───────────────────────────┘ │
-└───────────────────────┼─────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│ PQVault MCP Server (Rust, rmcp 1.1)                     │
+│                                                         │
+│  ┌──────────┐  ┌───────────┐  ┌──────────────────────┐ │
+│  │ 14 Tools │  │ Rate      │  │ Usage Tracker        │ │
+│  │ (MCP)    │  │ Limiter   │  │ (per-key stats)      │ │
+│  └────┬─────┘  └─────┬─────┘  └────────┬─────────────┘ │
+│       │              │                  │               │
+│  ┌────▼──────────────▼──────────────────▼─────────────┐ │
+│  │ Vault Engine                                       │ │
+│  │  open_vault() → decrypt → VaultData → encrypt      │ │
+│  └────────────────────┬───────────────────────────────┘ │
+│                       │                                 │
+│  ┌────────────────────▼───────────────────────────────┐ │
+│  │ Hybrid Crypto                                      │ │
+│  │  ML-KEM-768 (PQ) + X25519 (classical)              │ │
+│  │  → HKDF-SHA256 → AES-256-GCM                       │ │
+│  └────────────────────┬───────────────────────────────┘ │
+└───────────────────────┼─────────────────────────────────┘
                         │
         ┌───────────────┼───────────────┐
         ▼               ▼               ▼
    ~/.pqvault/     macOS Keychain   ~/.pqvault/
    vault.enc       (master pw)     usage.json
-   *.bin/*.enc                     audit.log
+   *.bin/*.enc     + file cache    audit.log
 ```
+
+### Interfaces
+
+| Interface | Port | Purpose |
+|-----------|------|---------|
+| **MCP Server** | stdio | AI agent access via JSON-RPC (14 tools) |
+| **Web Dashboard** | 9876 | Human-facing UI: browse, verify, edit, search secrets |
+| **CLI** | - | Terminal commands: init, status, list, get, add, health |
+
+---
+
+## Web Dashboard
+
+Full-featured web UI at `http://localhost:9876` for human operators.
+
+### Features
+
+- **Provider-grouped view** — Secrets organized by detected provider (Anthropic, Stripe, Resend, etc.)
+- **Key verification** — One-click verification against provider APIs. Detects: active, error, restricted-scope, unknown
+- **Masked values** — First 4 + last 4 characters displayed (e.g., `sk-a...8QAA`)
+- **Sidebar filters** — Filter by provider, status (active/error/unknown), category
+- **Full-text search** — Search across key names, accounts, descriptions, projects
+- **Metadata editing** — Set account, environment (production/development/test), description per key
+- **Add / Rotate / Delete** — Full CRUD via modals
+- **Dark theme** — Purple accent, designed for developer use
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Dashboard HTML (embedded, no external deps) |
+| `GET` | `/api/status` | Vault summary: encryption, counts, providers, status |
+| `GET` | `/api/secrets` | All secrets with masked values and metadata |
+| `POST` | `/api/secrets` | Add a new secret |
+| `DELETE` | `/api/secrets/{key}` | Delete a secret |
+| `PUT` | `/api/secrets/{key}/rotate` | Rotate secret value |
+| `PUT` | `/api/secrets/{key}/meta` | Update account, environment, description |
+| `POST` | `/api/secrets/{key}/verify` | Verify key against provider API |
+| `GET` | `/api/health` | Health report |
+| `GET` | `/api/search?q=...` | Search secrets |
+
+### Key Verification Logic
+
+Verification hits provider API endpoints with proper auth injection:
+
+| Status Code | Interpretation |
+|-------------|---------------|
+| 2xx | **active** — key is valid |
+| 400 | **active** — auth passed, request format issue |
+| 401/403 + "restricted" | **active** — valid key with limited scope |
+| 401/403 | **error** — key invalid or expired |
+| 5xx | **unknown** — server error, try later |
+| Connection error | **error** — can't reach provider |
 
 ---
 
@@ -99,34 +152,63 @@ Private keys (`pq_private.enc`, `x25519_private.enc`) are encrypted with:
 | Forward secrecy | Ephemeral X25519 keypair per encryption |
 | Authentication | AES-GCM authenticated encryption with AAD |
 | Key-at-rest | scrypt (128MB) + AES-256-GCM |
-| Master password | macOS Keychain (Secure Enclave on Apple Silicon) |
+| Master password | macOS Keychain + file cache (`~/.pqvault/.master_cache`) |
 | Nonce reuse prevention | Random 12-byte nonce per encryption (collision probability negligible) |
 
 ---
 
-## MCP Tools (12)
+## MCP Tools (14)
 
 ### Read Operations
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
 | `vault_status` | none | Encryption info, key count, project count, health status, active alerts |
-| `vault_get` | `key`, `caller?` | Get secret value. Rate-limited per provider. Usage tracked. Returns value in first content block, usage stats in second. |
-| `vault_list` | `category?` | List all secrets with metadata (name, category, provider, usage count, rotation date). No values shown. |
+| `vault_get` | `key`, `caller?` | Get secret value. Rate-limited per provider. Usage tracked. Returns value + usage stats |
+| `vault_list` | `category?` | List all secrets with metadata (name, category, provider, usage, rotation date). No values shown |
 | `vault_search` | `pattern` | Case-insensitive search across key names, descriptions, categories, and tags |
-| `vault_health` | none | Expired keys, rotation-due keys, orphaned keys (no project), smart alerts (usage spikes, idle keys) |
-| `vault_usage` | `key` | Detailed per-key report: total/daily/monthly requests, rate limit %, estimated cost, recent callers, alerts |
-| `vault_dashboard` | none | Full markdown dashboard: all keys with usage, costs, limits, health status in a table |
-| `vault_project_env` | `project` | Generate `.env` file content for a registered project (sorted, with extras) |
+| `vault_health` | none | Expired keys, rotation-due keys, orphaned keys, smart alerts (usage spikes, idle keys) |
+| `vault_usage` | `key` | Detailed per-key report: total/daily/monthly requests, rate limit %, cost, callers, alerts |
+| `vault_dashboard` | none | Full markdown dashboard: all keys with usage, costs, limits, health in a table |
+| `vault_project_env` | `project` | Generate `.env` file content for a registered project |
 
 ### Write Operations
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|
-| `vault_add` | `key`, `value`, `category?`, `description?` | Add secret. Auto-detects provider from name/value pattern. Sets up rate limits and usage tracking. |
-| `vault_rotate` | `key`, `new_value` | Update secret value and reset rotation timestamp. Clears rotation alerts. |
-| `vault_delete` | `key` | Remove secret and clean up all project references |
-| `vault_import_claude` | none | Scan `~/.claude.json` for API keys in MCP server env blocks. Import with auto-detection. |
+| `vault_add` | `key`, `value`, `category?`, `description?` | Add secret. Auto-detects provider. Sets up rate limits |
+| `vault_rotate` | `key`, `new_value` | Update secret value, reset rotation timestamp, clear alerts |
+| `vault_delete` | `key` | Remove secret and clean up project references |
+| `vault_import_claude` | none | Scan `~/.claude.json` for API keys in MCP server env blocks |
+
+### Zero-Knowledge Operations
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `vault_proxy` | `key`, `method`, `url`, `body?`, `headers?`, `query?`, `caller?`, `auth_override?` | **Proxy API calls through vault — key never exposed to caller.** Auth auto-injected based on provider. SSRF-protected |
+| `vault_write_env` | `project`, `directory`, `filename?` | **Write .env file to disk — values never returned to caller.** Path validated, permissions set to 0600 |
+
+### vault_proxy Details
+
+The proxy tool is the recommended way to call external APIs. Instead of `vault_get` + manual HTTP call (which exposes the key), `vault_proxy` keeps the key inside the vault process:
+
+```
+# Instead of:
+vault_get("STRIPE_SECRET_KEY")  → gets key → caller makes HTTP call
+
+# Use:
+vault_proxy(key="STRIPE_SECRET_KEY", method="GET", url="/v1/balance")
+  → vault makes HTTP call with key injected → returns response only
+```
+
+**Security features:**
+- HTTPS-only enforcement
+- SSRF protection: blocks IP literals, localhost, .local, .internal, metadata endpoints
+- Domain allowlisting per provider
+- Auth method auto-detection: Bearer, CustomHeader, BasicAuth, QueryParam
+- `auth_override` for unknown providers: `"bearer"`, `"basic"`, `"header:X-Key"`, `"query:api_key"`
+- 1MB response limit
+- Binary response detection
 
 ---
 
@@ -138,32 +220,30 @@ When a key is added, PQVault detects the provider by:
 
 1. **Name matching** (word-boundary aware): Key name checked against provider patterns. Uses word boundaries — `AWESOME_VAR` does NOT match `AWS`, but `AWS_KEY` does.
 2. **Value pattern matching**: Key value checked against regex patterns (e.g., `^sk-ant-` for Anthropic).
-3. **Longest match first**: If multiple patterns could match, longer patterns take priority to avoid false positives.
+3. **Longest match first**: If multiple patterns could match, longer patterns take priority.
 
-### Provider Configs
+### Provider Configs (10)
 
-| Provider | Name Pattern | Value Pattern | RPM | Daily | Monthly | Cost/req | Rotation |
-|----------|-------------|---------------|-----|-------|---------|----------|----------|
-| Anthropic | `ANTHROPIC` | `^sk-ant-` | 50 | 10,000 | - | $0.003 | 90d |
-| OpenAI | `OPENAI` | `^sk-[a-zA-Z0-9]{20,}` | 60 | 10,000 | - | $0.002 | 90d |
-| GitHub | `GITHUB` | `^(ghp_\|gho_\|github_pat_)` | 83 | 5,000 | - | $0.000 | 90d |
-| Stripe | `STRIPE` | `^(sk_live_\|sk_test_\|pk_)` | 100 | 10,000 | - | $0.000 | 30d |
-| Google | `GOOGLE_API` | `^AIza` | 100 | 10,000 | - | $0.001 | 180d |
-| Brave | `BRAVE` | `^BSA[a-zA-Z0-9]{20,}` | 10 | - | 2,000 | $0.000 | 365d |
-| Resend | `RESEND` | `^re_` | 10 | 100 | - | $0.000 | 180d |
-| Cloudflare | `CLOUDFLARE`, `CF_API` | - | 50 | 10,000 | - | $0.000 | 90d |
-| ElevenLabs | `ELEVENLABS` | - | 20 | 500 | - | $0.005 | 180d |
-| Serper | `SERPER` | - | 5 | - | 100 | $0.000 | 365d |
+| Provider | Name Pattern | Value Pattern | RPM | Daily | Monthly | Cost/req | Rotation | Verify Path |
+|----------|-------------|---------------|-----|-------|---------|----------|----------|-------------|
+| Anthropic | `ANTHROPIC` | `^sk-ant-` | 50 | 10,000 | - | $0.003 | 90d | `/v1/models` |
+| OpenAI | `OPENAI` | `^sk-[a-zA-Z0-9]{20,}` | 60 | 10,000 | - | $0.002 | 90d | `/v1/models` |
+| GitHub | `GITHUB` | `^(ghp_\|gho_\|github_pat_)` | 83 | 5,000 | - | $0.000 | 90d | `/user` |
+| Stripe | `STRIPE` | `^(sk_live_\|sk_test_\|pk_)` | 100 | 10,000 | - | $0.000 | 30d | `/v1/balance` |
+| Google | `GOOGLE_API` | `^AIza` | 100 | 10,000 | - | $0.001 | 180d | - |
+| Brave | `BRAVE` | `^BSA[a-zA-Z0-9]{20,}` | 10 | - | 2,000 | $0.000 | 365d | `/res/v1/web/search?q=test&count=1` |
+| Resend | `RESEND` | `^re_` | 10 | 100 | - | $0.000 | 180d | `/api-keys` |
+| Cloudflare | `CLOUDFLARE`, `CF_API` | - | 50 | 10,000 | - | $0.000 | 90d | `/client/v4/user/tokens/verify` |
+| ElevenLabs | `ELEVENLABS` | - | 20 | 500 | - | $0.005 | 180d | `/v1/user` |
+| Serper | `SERPER` | - | 5 | - | 100 | $0.000 | 365d | - |
 
 ### Rate Limiting
 
 Three-tier rate limiting:
 
-1. **Token Bucket** (per-minute): Smooth rate limiting. Tokens refill at `rpm/60` per second. Prevents burst abuse.
-2. **Daily Counter**: Hard cap per calendar day. Resets at midnight local time.
-3. **Monthly Counter**: Hard cap per calendar month. Used for providers with monthly quotas (Brave, Serper).
-
-When rate limited, `vault_get` returns `RATE LIMITED: <reason>` instead of the secret value.
+1. **Token Bucket** (per-minute): Smooth rate limiting. Tokens refill at `rpm/60` per second.
+2. **Daily Counter**: Hard cap per calendar day. Resets at midnight.
+3. **Monthly Counter**: Hard cap per calendar month. Used for Brave, Serper.
 
 ### Smart Alerts
 
@@ -171,29 +251,7 @@ When rate limited, `vault_get` returns `RATE LIMITED: <reason>` instead of the s
 |-------|-----------|----------|
 | `unused_key` | No access for 30+ days | warning |
 | `rotation_due` | Key age > provider's rotation_days | warning/critical |
-| `usage_spike` | Today's requests > 3x 7-day chronological average | warning |
-
-Alerts are deduplicated (same type within 1 hour) and capped at 50 per key.
-
----
-
-## Category System
-
-Keys are auto-categorized by name pattern (word-boundary matching):
-
-| Category | Matching Patterns |
-|----------|------------------|
-| `ai` | ANTHROPIC, OPENAI, HF_TOKEN, HUGGING, REPLICATE, STABILITY, ELEVENLABS, CLAUDE |
-| `payment` | STRIPE, PAYPAL, RAZORPAY |
-| `cloud` | AWS, GCP, GOOGLE_APPLICATION, CLOUDFLARE, VERCEL, FIREBASE |
-| `social` | TWITTER, X_API, X_ACCESS, LINKEDIN, INSTAGRAM, FACEBOOK, UNSPLASH |
-| `email` | RESEND, SENDGRID, MAILGUN, GMAIL, SMTP, EMAIL |
-| `database` | SUPABASE, POSTGRES, MYSQL, REDIS, MONGO, DATABASE_URL, DB |
-| `auth` | SESSION_SECRET, JWT, OAUTH, AUTH, GOOGLE_CLIENT |
-| `search` | SERPER, SERPAPI, ALGOLIA |
-| `general` | (default — no pattern matched) |
-
-Word-boundary matching prevents false positives: `MY_AWESOME_VAR` does NOT match `AWS`.
+| `usage_spike` | Today's requests > 3x 7-day average | warning |
 
 ---
 
@@ -203,39 +261,52 @@ Word-boundary matching prevents false positives: `MY_AWESOME_VAR` does NOT match
 
 ```rust
 struct SecretEntry {
-    value: String,           // The secret value
-    category: String,        // Auto-detected or manual (ai, payment, cloud, ...)
-    description: String,     // Human description
-    created: String,         // YYYY-MM-DD
-    rotated: String,         // YYYY-MM-DD (last rotation date)
-    expires: Option<String>, // YYYY-MM-DD (optional hard expiry)
-    rotation_days: i64,      // Recommended rotation interval (0 = never)
-    projects: Vec<String>,   // Which projects use this key
-    tags: Vec<String>,       // Searchable tags
+    value: String,              // The secret value
+    category: String,           // Auto-detected: ai, payment, cloud, social, email, database, auth, search, general
+    description: String,        // Human description
+    created: String,            // YYYY-MM-DD
+    rotated: String,            // YYYY-MM-DD (last rotation date)
+    expires: Option<String>,    // YYYY-MM-DD (optional hard expiry)
+    rotation_days: i64,         // Recommended rotation interval
+    projects: Vec<String>,      // Which projects use this key
+    tags: Vec<String>,          // Searchable tags
+    account: Option<String>,    // Account identity (e.g. "pranjal@dataxlr8.com")
+    environment: Option<String>,// production, development, test
+    related_keys: Vec<String>,  // Paired keys (e.g. client_id <-> client_secret)
+    last_verified: Option<String>,  // Last verification timestamp (RFC 3339)
+    last_error: Option<String>,     // Last error from verification
+    key_status: String,             // active, error, unknown, revoked
 }
 ```
 
-### ProjectEntry
+### KeyUsage (smart.rs)
 
 ```rust
-struct ProjectEntry {
-    path: String,                        // Project filesystem path
-    keys: Vec<String>,                   // Keys this project needs
-    env_file: String,                    // Target .env file name
-    env_extras: HashMap<String, String>, // Non-secret env vars (PORT, NODE_ENV, etc.)
+struct KeyUsage {
+    provider: String,                    // Detected provider name
+    total_requests: u64,                 // Lifetime request count
+    daily_counts: HashMap<String, u64>,  // YYYY-MM-DD → count
+    monthly_counts: HashMap<String, u64>,// YYYY-MM → count
+    last_used: Option<String>,           // RFC 3339 timestamp
+    first_used: Option<String>,          // RFC 3339 timestamp
+    estimated_cost_usd: f64,             // Cumulative estimated cost
+    token_bucket: Option<TokenBucket>,   // Per-minute rate limiter
+    alerts: Vec<AlertEntry>,             // Smart alerts
+    recent_callers: Vec<CallerEntry>,    // Last 20 callers
 }
 ```
 
-### VaultData
+---
 
-```rust
-struct VaultData {
-    version: String,                          // "1.0"
-    created: String,                          // ISO 8601
-    secrets: HashMap<String, SecretEntry>,     // key_name → secret
-    projects: HashMap<String, ProjectEntry>,   // project_name → config
-}
-```
+## Keychain & Password Caching
+
+Master password storage uses a three-tier approach to avoid macOS Keychain prompt storms:
+
+1. **In-process cache** (`OnceLock<Option<String>>`): Single read per process lifetime
+2. **File cache** (`~/.pqvault/.master_cache`): Permissions 0600, avoids Keychain for subsequent processes
+3. **macOS Keychain** (Secure Enclave): Authoritative source, queried only if file cache is missing
+
+This was implemented to solve the problem of 30+ MCP `pqvault serve` processes (one per tmux pane) each triggering Keychain prompts simultaneously.
 
 ---
 
@@ -246,29 +317,15 @@ struct VaultData {
 ├── vault.enc             # Encrypted vault data (hybrid PQ+classical)
 ├── vault.meta.json       # Algorithm metadata (not encrypted, no secrets)
 ├── pq_public.bin         # ML-KEM-768 encapsulation key (1184 bytes)
-├── pq_private.enc        # ML-KEM-768 decapsulation key (encrypted, 2400+ bytes)
+├── pq_private.enc        # ML-KEM-768 decapsulation key (encrypted)
 ├── x25519_public.bin     # X25519 public key (32 bytes)
-├── x25519_private.enc    # X25519 private key (encrypted, 32+ bytes)
+├── x25519_private.enc    # X25519 private key (encrypted)
 ├── usage.json            # Per-key usage stats, rate limit state, alerts
+├── .master_cache         # File-cached master password (0600 permissions)
 ├── audit.log             # JSONL access log (rotates at 10k lines)
-├── audit.log.1           # Rotated log (max 3 rotated files)
-├── audit.log.2
-├── audit.log.3
+├── audit.log.{1,2,3}     # Rotated logs (max 3)
 └── backups/
     └── vault.YYYY-MM-DD.enc
-```
-
-### vault.meta.json
-
-```json
-{
-  "version": "1.0",
-  "encryption": "hybrid-mlkem768-x25519-aes256gcm",
-  "kdf": "scrypt-n131072-r8-p1",
-  "pq_algorithm": "ML-KEM-768 (FIPS 203)",
-  "classical_algorithm": "X25519",
-  "symmetric_algorithm": "AES-256-GCM"
-}
 ```
 
 ---
@@ -279,6 +336,7 @@ struct VaultData {
 git clone https://github.com/pdaxt/pqvault-rs.git
 cd pqvault-rs
 cargo build --release
+codesign -s - target/release/pqvault  # macOS: ad-hoc sign to avoid Gatekeeper
 ```
 
 ### MCP Configuration
@@ -296,54 +354,105 @@ Add to `~/.claude.json`:
 }
 ```
 
-### CLI
+### CLI Commands
 
 ```bash
-pqvault init          # Initialize vault (generates keys, stores master pw in Keychain)
-pqvault serve         # Start MCP server (stdio JSON-RPC)
-pqvault status        # Show vault health summary
-pqvault list          # List all secrets (no values)
-pqvault get MY_KEY    # Print secret value
-pqvault add KEY val   # Add secret (auto-categorizes)
-pqvault health        # Show rotation/expiry/orphan warnings
+pqvault init                    # Initialize vault (generates keys, stores master pw in Keychain)
+pqvault serve                   # Start MCP server (stdio JSON-RPC)
+pqvault status                  # Show vault health summary
+pqvault list                    # List all secrets (no values)
+pqvault get MY_KEY              # Print secret value
+pqvault add KEY val [-c cloud]  # Add secret with optional category
+pqvault health                  # Show rotation/expiry/orphan warnings
+pqvault web [--port 9876]       # Start web dashboard
 ```
 
 ---
 
-## Test Coverage
+## Known Gaps
 
-**91 tests** across 8 test modules:
+### Security
+
+1. **No authentication on web UI** — Anyone on localhost can access all secrets via the web dashboard. Needs session auth or TOTP.
+2. **File cache stores master password in plaintext** — `~/.pqvault/.master_cache` is 0600 but readable by same-user processes. Trade-off for avoiding Keychain storms.
+3. **usage.json leaks key names** — Not encrypted. An attacker can see which API keys exist without decrypting the vault.
+4. **No TLS on web UI** — Listening on localhost only, but secrets are transmitted over HTTP.
+5. **Audit log not encrypted** — JSONL with action, key name, timestamps in plaintext.
+
+### Functionality
+
+6. **No batch verification** — Web UI "Verify All" runs sequentially; could be parallelized.
+7. **No webhook/notification** — When a key verification fails, there's no push notification.
+8. **No key expiry warnings in web UI** — Health report exists but isn't prominently shown.
+9. **Usage stats not shown in web UI** — API returns usage data but the dashboard doesn't display it prominently.
+10. **No multi-user support** — Single vault, single master password. No access control per user.
+11. **No backup management in web UI** — Backups exist but aren't visible or manageable.
+12. **Provider-specific headers hardcoded** — Only Anthropic has a special header (`anthropic-version`). Future providers may need similar treatment.
+13. **No import from .env files** — Can import from `~/.claude.json` but not from existing `.env` files.
+
+### Architecture
+
+14. **Web UI HTML embedded in Rust binary** — 560+ lines of HTML/CSS/JS in a raw string. Hard to iterate. Should be a separate file or template.
+15. **No database** — All state in JSON files. Works for <1000 secrets but won't scale.
+16. **Vault re-encrypted on every save** — Full hybrid encrypt for every modification. Could use a faster path for small changes.
+
+---
+
+## Source Structure
 
 ```
-cargo test                     # Run all 91 tests
-cargo test --test stress_tests # Run 87 stress/edge-case tests
-cargo test --lib               # Run 4 crypto unit tests
+src/
+├── main.rs        # CLI + MCP server entry point (220 lines)
+├── lib.rs         # Module re-exports (12 lines)
+├── mcp.rs         # MCP server: 14 tools via rmcp (876 lines)
+├── web.rs         # Axum web dashboard + API (1304 lines)
+├── smart.rs       # Usage tracking, rate limiting, dashboard (652 lines)
+├── proxy.rs       # HTTP proxy with SSRF protection (538 lines)
+├── crypto.rs      # Hybrid PQ+classical encryption (340 lines)
+├── providers.rs   # 10 provider configs + detection (281 lines)
+├── models.rs      # Data types + auto-categorize (199 lines)
+├── vault.rs       # Vault file operations (149 lines)
+├── audit.rs       # Append-only audit log + rotation (107 lines)
+├── keychain.rs    # macOS Keychain + file cache (87 lines)
+├── health.rs      # Expiry, rotation, orphan checks (64 lines)
+└── env_gen.rs     # .env file generation (39 lines)
+
+Total: 4,868 lines of Rust
 ```
 
-### Test Breakdown
+## Dependencies
 
-| Module | Tests | Coverage |
-|--------|-------|----------|
-| **crypto** | 23 | Empty/single-byte/1MB/binary/unicode plaintext, wrong keys (PQ, X25519, both), corrupted ciphertext/nonce/salt, truncated/empty/garbage payloads, overflow lengths, encryption uniqueness, keypair independence, wrong key sizes, password encrypt/decrypt edge cases |
-| **models** | 10 | Auto-categorize exact/false-positive/case/empty/special-char, serde defaults, JSON roundtrip, unicode values, 1000-secret vault, category completeness |
-| **providers** | 11 | Detect by name, detect by value pattern, unknown provider, no false positives, case insensitivity, config validation, regex validity |
-| **health** | 10 | Empty vault, fresh key, expired key, rotation due, rotation_days=0, orphaned key, category counting, invalid dates, expiry-today, 10k secret performance |
-| **env_gen** | 7 | Basic generation, unknown project, extras, key sorting, missing secrets, values with equals, empty project |
-| **smart** | 14 | Token bucket allow/exhaust, usage defaults, record access, caller cap (20), rate limit unknown key/provider, dashboard empty/populated, key status, alert dedup |
-| **audit** | 5 | Empty log, filtered read, limit, serialization, special characters |
-| **serialization** | 3 | Multi-size roundtrip (0-64k), complex vault JSON, full encrypt-decrypt-vault pipeline (100 secrets) |
+| Crate | Version | Purpose |
+|-------|---------|---------|
+| `rmcp` | 1.1 | MCP server framework (stdio JSON-RPC, tool routing) |
+| `axum` | 0.8 | Web framework for dashboard |
+| `tower` | 0.5 | HTTP middleware |
+| `ml-kem` | 0.2 | ML-KEM-768 post-quantum KEM (FIPS 203) |
+| `kem` | 0.3.0-pre.0 | KEM traits (Encapsulate/Decapsulate) |
+| `x25519-dalek` | 2 | X25519 Diffie-Hellman key exchange |
+| `aes-gcm` | 0.10 | AES-256-GCM authenticated encryption |
+| `hkdf` | 0.12 | HKDF-SHA256 key derivation |
+| `sha2` | 0.10 | SHA-256 hash function |
+| `scrypt` | 0.11 | Memory-hard password KDF |
+| `keyring` | 3 | macOS Keychain (apple-native feature) |
+| `reqwest` | 0.12 | HTTP client (proxy, verification) |
+| `clap` | 4 | CLI argument parsing |
+| `tokio` | 1 | Async runtime (multi-thread) |
+| `serde` / `serde_json` | 1.0 | JSON serialization |
+| `schemars` | 1.0 | JSON Schema generation for MCP tool parameters |
+| `chrono` | 0.4 | Date/time handling |
+| `regex` | 1 | Provider key pattern matching |
+| `url` | 2 | URL parsing and validation |
+| `base64` | 0.22 | Base64 encoding for Basic auth |
+| `rand` | 0.8 | Cryptographic RNG (OsRng) |
+| `thiserror` | 1 | Error type derivation |
+| `anyhow` | 1 | Error context propagation |
+| `tracing` | 0.1 | Structured logging (stderr) |
+| `dirs` | 5 | Cross-platform home directory |
 
 ---
 
 ## Security Roadmap (v3)
-
-### Current Limitations
-
-The vault files and master password are accessible to any process running as the same OS user. An AI agent with shell access can:
-
-1. Read `~/.pqvault/usage.json` (key names in plaintext)
-2. Query macOS Keychain for the master password
-3. Decrypt the vault directly, bypassing rate limits and audit
 
 ### Planned: Daemon + Web Portal + Token-Gated Access
 
@@ -371,58 +480,9 @@ The vault files and master password are accessible to any process running as the
 ```
 
 **Key changes:**
-
-1. **Master password removed from Keychain** — entered via web portal (TOTP-gated), held only in daemon memory
-2. **usage.json + audit.log encrypted** — key names no longer leak
-3. **Every vault_get requires a session token** — tokens created only via web portal with TOTP
-4. **Hybrid approval model**: low-risk keys (ai, search, social) auto-approve with valid token. High-risk keys (payment, auth, database) require per-request human approval via web portal notification.
-5. **Token scoping**: each token specifies which keys/categories it can access and has a TTL (1h/4h/8h/24h)
-6. **Instant revocation**: compromised token revoked from web portal, all subsequent requests fail
-
----
-
-## Source Structure
-
-```
-src/
-├── main.rs        # CLI + MCP server entry (199 lines)
-├── lib.rs         # Module re-exports (11 lines)
-├── crypto.rs      # Hybrid PQ+classical encryption (341 lines)
-├── vault.rs       # Vault file operations (150 lines)
-├── keychain.rs    # macOS Keychain access (42 lines)
-├── models.rs      # Data types + auto-categorize (170 lines)
-├── providers.rs   # 10 provider configs + detection (213 lines)
-├── smart.rs       # Usage tracking, rate limiting, dashboard (651 lines)
-├── health.rs      # Expiry, rotation, orphan checks (65 lines)
-├── audit.rs       # Append-only audit log + rotation (108 lines)
-├── env_gen.rs     # .env file generation (40 lines)
-└── mcp.rs         # MCP server: 12 tools via rmcp (631 lines)
-
-tests/
-└── stress_tests.rs  # 87 edge-case tests across all modules (1010 lines)
-```
-
-## Dependencies
-
-| Crate | Version | Purpose |
-|-------|---------|---------|
-| `rmcp` | 1.1 | MCP server framework (stdio JSON-RPC, tool routing) |
-| `ml-kem` | 0.2 | ML-KEM-768 post-quantum KEM (FIPS 203) |
-| `kem` | 0.3.0-pre.0 | KEM traits (Encapsulate/Decapsulate) |
-| `x25519-dalek` | 2 | X25519 Diffie-Hellman key exchange |
-| `aes-gcm` | 0.10 | AES-256-GCM authenticated encryption |
-| `hkdf` | 0.12 | HKDF-SHA256 key derivation |
-| `sha2` | 0.10 | SHA-256 hash function |
-| `scrypt` | 0.11 | Memory-hard password KDF |
-| `keyring` | 3 | macOS Keychain (apple-native feature) |
-| `clap` | 4 | CLI argument parsing |
-| `tokio` | 1 | Async runtime (multi-thread) |
-| `serde` / `serde_json` | 1.0 | JSON serialization |
-| `schemars` | 1.0 | JSON Schema generation for MCP tool parameters |
-| `chrono` | 0.4 | Date/time handling |
-| `regex` | 1 | Provider key pattern matching |
-| `rand` | 0.8 | Cryptographic RNG (OsRng) |
-| `thiserror` | 1 | Error type derivation |
-| `anyhow` | 1 | Error context propagation |
-| `tracing` | 0.1 | Structured logging (stderr) |
-| `dirs` | 5 | Cross-platform home directory |
+1. Master password removed from Keychain — entered via web portal (TOTP-gated), held only in daemon memory
+2. usage.json + audit.log encrypted — key names no longer leak
+3. Every vault_get requires a session token — tokens created only via web portal with TOTP
+4. Hybrid approval model: low-risk keys auto-approve, high-risk keys require human approval
+5. Token scoping: each token specifies which keys/categories it can access with TTL
+6. Instant revocation from web portal
