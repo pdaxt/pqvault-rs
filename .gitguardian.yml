@@ -1,0 +1,26 @@
+version: 2
+
+secret:
+  # PQVault is a secrets management tool — docs and scanner contain
+  # example/regex patterns that match secret formats but are NOT real keys.
+  ignored-paths:
+    - "docs/features/**"          # Feature specs with example values
+    - "tests/**"                  # Test files with dummy values
+
+  ignored-matches:
+    - name: "Scanner regex patterns"
+      match: 'r"sk_live_'
+    - name: "Scanner regex patterns"
+      match: 'r"sk_test_'
+    - name: "Scanner regex patterns"
+      match: 'r"pk_live_'
+    - name: "Scanner regex patterns"
+      match: 'r"rk_live_'
+    - name: "Scanner regex patterns"
+      match: 'r"AKIA'
+    - name: "Scanner regex patterns"
+      match: 'r"ghp_'
+    - name: "Test dummy values"
+      match: "sk_live_xxx"
+    - name: "AWS docs example"
+      match: "AKIAIOSFODNN7EXAMPLE"

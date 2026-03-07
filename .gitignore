@@ -4,3 +4,15 @@ Cargo.lock
 *.jpg
 demo.sh
 demo_mcp.py
+
+# Secrets — never commit these
+.env
+.env.*
+*.pem
+*.key
+*.enc
+*.secret
+*.p12
+*.pfx
+credentials.json
+service-account.json
