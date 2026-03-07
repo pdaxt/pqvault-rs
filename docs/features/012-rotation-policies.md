@@ -1,6 +1,6 @@
 # Feature 012: Rotation Policies
 
-## Status: Planned
+## Status: Done
 ## Phase: 2 (v2.2)
 ## Priority: Critical
 

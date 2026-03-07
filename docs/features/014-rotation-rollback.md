@@ -1,6 +1,6 @@
 # Feature 014: Rotation Rollback
 
-## Status: Planned
+## Status: Done
 ## Phase: 2 (v2.2)
 ## Priority: High
 

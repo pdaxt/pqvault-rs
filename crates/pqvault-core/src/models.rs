@@ -39,10 +39,85 @@ pub struct SecretEntry {
     /// Key status: active, error, unknown, revoked
     #[serde(default = "default_status")]
     pub key_status: String,
+    /// Lifecycle: active, deprecated, disabled, archived
+    #[serde(default = "default_lifecycle")]
+    pub lifecycle: String,
+    /// Reason for lifecycle transition
+    #[serde(default)]
+    pub lifecycle_reason: Option<String>,
+    /// When lifecycle was last changed
+    #[serde(default)]
+    pub lifecycle_changed: Option<String>,
+    /// Previous values for rotation rollback and audit
+    #[serde(default)]
+    pub versions: Vec<SecretVersion>,
+    /// Maximum versions to retain (0 = unlimited)
+    #[serde(default = "default_max_versions")]
+    pub max_versions: usize,
+    /// Rotation policy
+    #[serde(default)]
+    pub rotation_policy: Option<RotationPolicy>,
+}
+
+/// A historical version of a secret value
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecretVersion {
+    pub value: String,
+    pub rotated_at: String,
+    #[serde(default)]
+    pub rotated_by: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
+/// Per-key rotation policy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotationPolicy {
+    /// Rotation interval in days
+    pub interval_days: i64,
+    /// Auto-rotate via provider API
+    #[serde(default)]
+    pub auto_rotate: bool,
+    /// Notify before expiry (days)
+    #[serde(default = "default_notify_days")]
+    pub notify_before_days: i64,
+    /// Last auto-rotation attempt
+    #[serde(default)]
+    pub last_auto_rotation: Option<String>,
+}
+
+fn default_notify_days() -> i64 {
+    7
 }
 
 fn default_status() -> String {
     "unknown".to_string()
+}
+
+fn default_lifecycle() -> String {
+    "active".to_string()
+}
+
+fn default_max_versions() -> usize {
+    10
+}
+
+/// Valid lifecycle transitions
+pub fn valid_lifecycle_transition(from: &str, to: &str) -> bool {
+    matches!(
+        (from, to),
+        ("active", "deprecated")
+            | ("deprecated", "disabled")
+            | ("deprecated", "active") // un-deprecate
+            | ("disabled", "archived")
+            | ("disabled", "active") // re-enable
+            | ("archived", "active") // restore
+    )
+}
+
+/// All valid lifecycle states
+pub fn lifecycle_states() -> &'static [&'static str] {
+    &["active", "deprecated", "disabled", "archived"]
 }
 
 /// Generate a masked preview: first 4 + "..." + last 4 chars

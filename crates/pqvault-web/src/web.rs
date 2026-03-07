@@ -78,6 +78,9 @@ struct SecretInfo {
     last_verified: Option<String>,
     last_error: Option<String>,
     can_verify: bool,
+    lifecycle: String,
+    lifecycle_reason: Option<String>,
+    version_count: usize,
 }
 
 #[derive(Serialize)]
@@ -185,6 +188,9 @@ fn build_secret_info(
         last_verified: s.last_verified.clone(),
         last_error: s.last_error.clone(),
         can_verify,
+        lifecycle: s.lifecycle.clone(),
+        lifecycle_reason: s.lifecycle_reason.clone(),
+        version_count: s.versions.len(),
     }
 }
 
@@ -383,6 +389,12 @@ async fn add_handler(
             last_verified: None,
             last_error: None,
             key_status: "unknown".to_string(),
+            lifecycle: "active".to_string(),
+            lifecycle_reason: None,
+            lifecycle_changed: None,
+            versions: vec![],
+            max_versions: 10,
+            rotation_policy: None,
         },
     );
 
@@ -471,6 +483,19 @@ async fn rotate_handler(
             )
         }
     };
+
+    // Store old value in version history
+    secret.versions.push(pqvault_core::models::SecretVersion {
+        value: secret.value.clone(),
+        rotated_at: Local::now().to_rfc3339(),
+        rotated_by: "web".to_string(),
+        reason: String::new(),
+    });
+    // Trim versions if exceeding max
+    if secret.max_versions > 0 && secret.versions.len() > secret.max_versions {
+        let excess = secret.versions.len() - secret.max_versions;
+        secret.versions.drain(0..excess);
+    }
 
     secret.value = req.new_value;
     secret.rotated = Local::now().format("%Y-%m-%d").to_string();

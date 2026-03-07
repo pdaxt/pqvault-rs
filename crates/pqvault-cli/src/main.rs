@@ -110,6 +110,64 @@ enum Commands {
         #[arg(long)]
         quiet: bool,
     },
+    /// Change key lifecycle state (deprecate, disable, archive, restore)
+    Lifecycle {
+        /// Key name
+        key: String,
+        /// Target state: deprecate, disable, archive, restore
+        action: String,
+        /// Reason for the change
+        #[arg(short, long)]
+        reason: Option<String>,
+    },
+    /// Rotate a secret (store old value in version history)
+    Rotate {
+        /// Key name
+        key: String,
+        /// New secret value
+        value: String,
+        /// Reason for rotation
+        #[arg(short, long)]
+        reason: Option<String>,
+    },
+    /// Show version history for a secret
+    History {
+        /// Key name
+        key: String,
+        /// Show full values (default: masked)
+        #[arg(long)]
+        full: bool,
+    },
+    /// Check which keys need rotation
+    CheckRotation {
+        /// Show all keys, not just those needing rotation
+        #[arg(long)]
+        all: bool,
+    },
+    /// Set rotation policy for a key
+    SetPolicy {
+        /// Key name
+        key: String,
+        /// Rotation interval in days
+        #[arg(short, long)]
+        days: i64,
+        /// Enable auto-rotation (requires provider support)
+        #[arg(long)]
+        auto: bool,
+        /// Notify this many days before due
+        #[arg(long, default_value_t = 7)]
+        notify_before: i64,
+    },
+    /// Rollback a key to a previous version
+    Rollback {
+        /// Key name
+        key: String,
+        /// Version number to rollback to (from `pqvault history`)
+        #[arg(short, long)]
+        version: Option<usize>,
+    },
+    /// Comprehensive vault health check
+    Doctor,
     /// Export secrets for a project
     Export {
         /// Project name
@@ -430,12 +488,18 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
+                let lifecycle_tag = if s.lifecycle != "active" {
+                    format!(" ({})", s.lifecycle)
+                } else {
+                    String::new()
+                };
                 println!(
-                    "{} [{}] projects={} rotated={}",
+                    "{} [{}] projects={} rotated={}{}",
                     k,
                     s.category,
                     s.projects.join(","),
-                    s.rotated
+                    s.rotated,
+                    lifecycle_tag
                 );
             }
             Ok(())
@@ -478,6 +542,12 @@ async fn main() -> Result<()> {
                     last_verified: None,
                     last_error: None,
                     key_status: "unknown".to_string(),
+                    lifecycle: "active".to_string(),
+                    lifecycle_reason: None,
+                    lifecycle_changed: None,
+                    versions: vec![],
+                    max_versions: 10,
+                    rotation_policy: None,
                 },
             );
             vault::save_vault(&data)?;
@@ -723,6 +793,12 @@ async fn main() -> Result<()> {
                             last_verified: None,
                             last_error: None,
                             key_status: "unknown".to_string(),
+                            lifecycle: "active".to_string(),
+                            lifecycle_reason: None,
+                            lifecycle_changed: None,
+                            versions: vec![],
+                            max_versions: 10,
+                            rotation_policy: None,
                         },
                     );
                     added += 1;
@@ -859,6 +935,455 @@ async fn main() -> Result<()> {
                 print!("{}", content);
             }
 
+            Ok(())
+        }
+        Commands::CheckRotation { all } => {
+            let data = require_vault()?;
+            let now = chrono::Local::now();
+            let mut needs_rotation = Vec::new();
+            let mut up_to_date = Vec::new();
+
+            for (key, secret) in &data.secrets {
+                if secret.lifecycle != "active" {
+                    continue;
+                }
+                let rotation_days = secret
+                    .rotation_policy
+                    .as_ref()
+                    .map(|p| p.interval_days)
+                    .unwrap_or(secret.rotation_days);
+
+                let rotated = chrono::NaiveDate::parse_from_str(&secret.rotated, "%Y-%m-%d")
+                    .unwrap_or_else(|_| now.date_naive());
+                let days_since = (now.date_naive() - rotated).num_days();
+                let days_until = rotation_days - days_since;
+
+                let notify_before = secret
+                    .rotation_policy
+                    .as_ref()
+                    .map(|p| p.notify_before_days)
+                    .unwrap_or(7);
+
+                if days_until <= 0 {
+                    needs_rotation.push((key.clone(), days_since, rotation_days, "OVERDUE"));
+                } else if days_until <= notify_before {
+                    needs_rotation.push((key.clone(), days_since, rotation_days, "DUE SOON"));
+                } else if all {
+                    up_to_date.push((key.clone(), days_since, rotation_days, days_until));
+                }
+            }
+
+            if needs_rotation.is_empty() && !all {
+                println!("All keys are within rotation policy.");
+                return Ok(());
+            }
+
+            if !needs_rotation.is_empty() {
+                println!("Keys needing rotation:");
+                needs_rotation.sort_by(|a, b| b.1.cmp(&a.1));
+                for (key, days, policy, status) in &needs_rotation {
+                    println!(
+                        "  {} - {} ({} days since rotation, policy: {} days)",
+                        status, key, days, policy
+                    );
+                }
+            }
+
+            if all && !up_to_date.is_empty() {
+                println!("\nUp to date:");
+                up_to_date.sort_by(|a, b| a.3.cmp(&b.3));
+                for (key, days, policy, until) in &up_to_date {
+                    println!(
+                        "  OK {} ({}/{} days, {} days remaining)",
+                        key, days, policy, until
+                    );
+                }
+            }
+            Ok(())
+        }
+        Commands::SetPolicy {
+            key,
+            days,
+            auto,
+            notify_before,
+        } => {
+            let mut data = require_vault()?;
+            let secret = match data.secrets.get_mut(&key) {
+                Some(s) => s,
+                None => bail!("Key not found: {}", key),
+            };
+
+            secret.rotation_policy = Some(models::RotationPolicy {
+                interval_days: days,
+                auto_rotate: auto,
+                notify_before_days: notify_before,
+                last_auto_rotation: None,
+            });
+
+            vault::save_vault(&data)?;
+            println!(
+                "Policy set for {}: rotate every {} days{}{}",
+                key,
+                days,
+                if auto { ", auto-rotate enabled" } else { "" },
+                if notify_before != 7 {
+                    format!(", notify {} days before", notify_before)
+                } else {
+                    String::new()
+                }
+            );
+            Ok(())
+        }
+        Commands::Rollback { key, version } => {
+            let mut data = require_vault()?;
+            let secret = match data.secrets.get_mut(&key) {
+                Some(s) => s,
+                None => bail!("Key not found: {}", key),
+            };
+
+            if secret.versions.is_empty() {
+                bail!("No previous versions for '{}'", key);
+            }
+
+            let ver_idx = match version {
+                Some(v) => {
+                    if v == 0 || v > secret.versions.len() {
+                        bail!(
+                            "Invalid version {}. Valid range: 1-{}",
+                            v,
+                            secret.versions.len()
+                        );
+                    }
+                    v - 1
+                }
+                None => secret.versions.len() - 1, // latest previous version
+            };
+
+            let old_version = &secret.versions[ver_idx];
+            let rollback_value = old_version.value.clone();
+            let rollback_from = old_version.rotated_at.clone();
+
+            // Store current value as a version before rolling back
+            secret.versions.push(models::SecretVersion {
+                value: secret.value.clone(),
+                rotated_at: chrono::Local::now().to_rfc3339(),
+                rotated_by: "cli".to_string(),
+                reason: format!("pre-rollback (rolling back to v{})", ver_idx + 1),
+            });
+
+            // Trim if needed
+            if secret.max_versions > 0 && secret.versions.len() > secret.max_versions {
+                let excess = secret.versions.len() - secret.max_versions;
+                secret.versions.drain(0..excess);
+            }
+
+            secret.value = rollback_value;
+            secret.rotated = chrono::Local::now().format("%Y-%m-%d").to_string();
+            secret.key_status = "unknown".to_string();
+            secret.last_verified = None;
+
+            vault::save_vault(&data)?;
+            pqvault_core::audit::log_access(
+                &format!("rollback:v{}", ver_idx + 1),
+                &key,
+                "",
+                "cli",
+            );
+
+            println!(
+                "Rolled back '{}' to v{} (from {})",
+                key,
+                ver_idx + 1,
+                rollback_from
+            );
+            Ok(())
+        }
+        Commands::Doctor => {
+            let data = require_vault()?;
+            let report = check_health(&data);
+
+            println!("=== PQVault Health Report ===\n");
+            println!("Total secrets: {}", report.total_secrets);
+
+            // Lifecycle breakdown
+            if !report.by_lifecycle.is_empty() {
+                let mut lifecycle: Vec<_> = report.by_lifecycle.iter().collect();
+                lifecycle.sort_by_key(|(k, _)| k.to_string());
+                let parts: Vec<String> = lifecycle
+                    .iter()
+                    .map(|(k, v)| format!("{}: {}", k, v))
+                    .collect();
+                println!("Lifecycle: {}", parts.join(", "));
+            }
+
+            // Category breakdown
+            if !report.by_category.is_empty() {
+                let mut cats: Vec<_> = report.by_category.iter().collect();
+                cats.sort_by(|a, b| b.1.cmp(a.1));
+                println!("\nCategories:");
+                for (cat, count) in &cats {
+                    println!("  {:15} {}", cat, count);
+                }
+            }
+
+            // Issues
+            let mut issues = 0;
+
+            if !report.expired.is_empty() {
+                issues += report.expired.len();
+                println!("\nEXPIRED ({}):", report.expired.len());
+                for k in &report.expired {
+                    println!("  {}", k);
+                }
+            }
+
+            if !report.expiring_soon.is_empty() {
+                println!("\nEXPIRING SOON ({}):", report.expiring_soon.len());
+                let mut sorted = report.expiring_soon.clone();
+                sorted.sort_by_key(|(_, d)| *d);
+                for (k, days) in &sorted {
+                    println!("  {} ({} days)", k, days);
+                }
+            }
+
+            if !report.needs_rotation.is_empty() {
+                issues += report.needs_rotation.len();
+                println!("\nNEEDS ROTATION ({}):", report.needs_rotation.len());
+                for k in &report.needs_rotation {
+                    println!("  {}", k);
+                }
+            }
+
+            if !report.error_keys.is_empty() {
+                issues += report.error_keys.len();
+                println!("\nERROR STATUS ({}):", report.error_keys.len());
+                for k in &report.error_keys {
+                    println!("  {}", k);
+                }
+            }
+
+            if !report.deprecated.is_empty() {
+                println!("\nDEPRECATED ({}):", report.deprecated.len());
+                for k in &report.deprecated {
+                    println!("  {}", k);
+                }
+            }
+
+            if !report.disabled.is_empty() {
+                println!("\nDISABLED ({}):", report.disabled.len());
+                for k in &report.disabled {
+                    println!("  {}", k);
+                }
+            }
+
+            // Vault file checks
+            println!("\n=== Vault Files ===");
+            let vault_path = pqvault_core::vault::vault_file();
+            if vault_path.exists() {
+                let meta = std::fs::metadata(&vault_path)?;
+                println!(
+                    "vault.enc: {} bytes",
+                    meta.len()
+                );
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mode = meta.permissions().mode() & 0o777;
+                    if mode != 0o600 {
+                        println!("  WARNING: permissions are {:o} (should be 600)", mode);
+                        issues += 1;
+                    } else {
+                        println!("  permissions: 600 (OK)");
+                    }
+                }
+            }
+
+            let keychain_ok = pqvault_core::keychain::has_master_password();
+            println!(
+                "Keychain: {}",
+                if keychain_ok { "OK" } else { "NOT FOUND" }
+            );
+            if !keychain_ok {
+                issues += 1;
+            }
+
+            println!(
+                "\n=== Result: {} ===",
+                if issues == 0 {
+                    "HEALTHY"
+                } else {
+                    "ISSUES FOUND"
+                }
+            );
+            if issues > 0 {
+                println!("{} issue(s) detected", issues);
+            }
+
+            Ok(())
+        }
+        Commands::Lifecycle {
+            key,
+            action,
+            reason,
+        } => {
+            let mut data = require_vault()?;
+            let secret = match data.secrets.get_mut(&key) {
+                Some(s) => s,
+                None => bail!("Key not found: {}", key),
+            };
+
+            let target = match action.as_str() {
+                "deprecate" => "deprecated",
+                "disable" => "disabled",
+                "archive" => "archived",
+                "restore" | "activate" => "active",
+                other => bail!(
+                    "Unknown action: '{}'. Use: deprecate, disable, archive, restore",
+                    other
+                ),
+            };
+
+            if !models::valid_lifecycle_transition(&secret.lifecycle, target) {
+                bail!(
+                    "Cannot transition '{}' from '{}' to '{}'. Valid transitions:\n  \
+                     active → deprecated\n  \
+                     deprecated → disabled | active\n  \
+                     disabled → archived | active\n  \
+                     archived → active",
+                    key,
+                    secret.lifecycle,
+                    target
+                );
+            }
+
+            let old_state = secret.lifecycle.clone();
+            secret.lifecycle = target.to_string();
+            secret.lifecycle_reason = reason.clone();
+            secret.lifecycle_changed =
+                Some(chrono::Local::now().to_rfc3339());
+
+            vault::save_vault(&data)?;
+            pqvault_core::audit::log_access(
+                &format!("lifecycle:{}", target),
+                &key,
+                "",
+                "cli",
+            );
+
+            println!(
+                "{}: {} → {}{}",
+                key,
+                old_state,
+                target,
+                reason
+                    .as_ref()
+                    .map(|r| format!(" ({})", r))
+                    .unwrap_or_default()
+            );
+            Ok(())
+        }
+        Commands::Rotate {
+            key,
+            value,
+            reason,
+        } => {
+            let mut data = require_vault()?;
+            let secret = match data.secrets.get_mut(&key) {
+                Some(s) => s,
+                None => bail!("Key not found: {}", key),
+            };
+
+            if secret.lifecycle == "disabled" || secret.lifecycle == "archived" {
+                bail!(
+                    "Cannot rotate '{}': key is {} (restore it first)",
+                    key,
+                    secret.lifecycle
+                );
+            }
+
+            // Store old value in version history
+            let old_value = secret.value.clone();
+            secret.versions.push(models::SecretVersion {
+                value: old_value,
+                rotated_at: chrono::Local::now().to_rfc3339(),
+                rotated_by: "cli".to_string(),
+                reason: reason.clone().unwrap_or_default(),
+            });
+
+            // Trim versions if exceeding max
+            if secret.max_versions > 0 && secret.versions.len() > secret.max_versions {
+                let excess = secret.versions.len() - secret.max_versions;
+                secret.versions.drain(0..excess);
+            }
+
+            // Update to new value
+            secret.value = value;
+            secret.rotated = chrono::Local::now().format("%Y-%m-%d").to_string();
+            secret.key_status = "unknown".to_string();
+            secret.last_verified = None;
+            secret.last_error = None;
+
+            vault::save_vault(&data)?;
+            pqvault_core::audit::log_access("rotate", &key, "", "cli");
+
+            println!(
+                "Rotated: {} (version {} stored){}",
+                key,
+                data.secrets[&key].versions.len(),
+                reason
+                    .as_ref()
+                    .map(|r| format!(" reason: {}", r))
+                    .unwrap_or_default()
+            );
+            Ok(())
+        }
+        Commands::History { key, full } => {
+            let data = require_vault()?;
+            let secret = match data.secrets.get(&key) {
+                Some(s) => s,
+                None => bail!("Key not found: {}", key),
+            };
+
+            println!("Key: {}", key);
+            println!(
+                "Current: {} [{}] lifecycle={}",
+                if full {
+                    secret.value.clone()
+                } else {
+                    models::mask_value(&secret.value)
+                },
+                secret.rotated,
+                secret.lifecycle
+            );
+
+            if secret.versions.is_empty() {
+                println!("No previous versions.");
+            } else {
+                println!("\nVersion history ({}):", secret.versions.len());
+                for (i, ver) in secret.versions.iter().enumerate().rev() {
+                    let display = if full {
+                        ver.value.clone()
+                    } else {
+                        models::mask_value(&ver.value)
+                    };
+                    println!(
+                        "  v{}: {} [{}]{}{}",
+                        i + 1,
+                        display,
+                        ver.rotated_at,
+                        if ver.rotated_by.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" by={}", ver.rotated_by)
+                        },
+                        if ver.reason.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" reason=\"{}\"", ver.reason)
+                        }
+                    );
+                }
+            }
             Ok(())
         }
     }

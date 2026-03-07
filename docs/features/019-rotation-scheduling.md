@@ -1,6 +1,6 @@
 # Feature 019: Rotation Scheduling
 
-## Status: Planned
+## Status: Done
 ## Phase: 2 (v2.2)
 ## Priority: Low
 

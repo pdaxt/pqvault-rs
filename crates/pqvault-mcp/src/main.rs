@@ -292,6 +292,12 @@ impl PqVaultMcp {
                 last_verified: None,
                 last_error: None,
                 key_status: "unknown".to_string(),
+                lifecycle: "active".to_string(),
+                lifecycle_reason: None,
+                lifecycle_changed: None,
+                versions: vec![],
+                max_versions: 10,
+                rotation_policy: None,
             },
         );
 
@@ -423,6 +429,12 @@ impl PqVaultMcp {
                                 last_verified: None,
                                 last_error: None,
                                 key_status: "unknown".to_string(),
+                                lifecycle: "active".to_string(),
+                                lifecycle_reason: None,
+                                lifecycle_changed: None,
+                                versions: vec![],
+                                max_versions: 10,
+                                rotation_policy: None,
                             },
                         );
 

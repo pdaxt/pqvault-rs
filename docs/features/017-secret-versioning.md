@@ -1,6 +1,6 @@
 # Feature 017: Secret Versioning
 
-## Status: Planned
+## Status: Done
 ## Phase: 2 (v2.2)
 ## Priority: Medium
 

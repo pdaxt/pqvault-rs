@@ -1,6 +1,6 @@
 # Feature 018: Dual-Write Rotation
 
-## Status: Planned
+## Status: Done
 ## Phase: 2 (v2.2)
 ## Priority: Medium
 
