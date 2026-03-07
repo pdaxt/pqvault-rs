@@ -1365,6 +1365,50 @@ async fn main() -> Result<()> {
                 }
             }
 
+            // Dead keys
+            if !report.dead_keys.is_empty() {
+                issues += report.dead_keys.len();
+                println!("\nDEAD KEYS ({}):", report.dead_keys.len());
+                for dk in &report.dead_keys {
+                    println!(
+                        "  {} [{}] — {} days inactive\n    {}",
+                        dk.name, dk.category, dk.days_unused, dk.recommendation
+                    );
+                }
+            }
+
+            // Duplicates
+            if !report.duplicates.is_empty() {
+                issues += report.duplicates.len();
+                println!("\nDUPLICATE VALUES ({} groups):", report.duplicates.len());
+                for dup in &report.duplicates {
+                    println!(
+                        "  Hash {}...: {}",
+                        &dup.value_hash,
+                        dup.keys.join(", ")
+                    );
+                }
+            }
+
+            // Key health scores (show worst 10)
+            let worst: Vec<_> = report
+                .key_scores
+                .iter()
+                .filter(|k| k.score < 80)
+                .take(10)
+                .collect();
+            if !worst.is_empty() {
+                println!("\nLOW HEALTH SCORES ({} keys below 80):", worst.len());
+                for ks in &worst {
+                    println!(
+                        "  {:40} score: {:>3}  issues: {}",
+                        ks.name,
+                        ks.score,
+                        ks.issues.join(", ")
+                    );
+                }
+            }
+
             // Vault file checks
             println!("\n=== Vault Files ===");
             let vault_path = pqvault_core::vault::vault_file();

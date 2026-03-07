@@ -1,6 +1,6 @@
 # Feature 038: Alert Rules Engine
 
-## Status: Planned
+## Status: Done
 ## Phase: 4 (v2.4)
 ## Priority: Medium
 

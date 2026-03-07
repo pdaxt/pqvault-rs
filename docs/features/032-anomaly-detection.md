@@ -1,6 +1,6 @@
 # Feature 032: Anomaly Detection
 
-## Status: Planned
+## Status: Done
 ## Phase: 4 (v2.4)
 ## Priority: High
 

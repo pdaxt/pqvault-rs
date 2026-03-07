@@ -1,6 +1,6 @@
 # Feature 035: Key Health Score
 
-## Status: Planned
+## Status: Done
 ## Phase: 4 (v2.4)
 ## Priority: Medium
 

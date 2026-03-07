@@ -1,6 +1,6 @@
 # Feature 039: Weekly Digest Report
 
-## Status: Planned
+## Status: Done
 ## Phase: 4 (v2.4)
 ## Priority: Medium
 

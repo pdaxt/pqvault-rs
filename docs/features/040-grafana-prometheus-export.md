@@ -1,6 +1,6 @@
 # Feature 040: Grafana/Prometheus Export
 
-## Status: Planned
+## Status: Done
 ## Phase: 4 (v2.4)
 ## Priority: Low
 
