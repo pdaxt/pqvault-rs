@@ -1,6 +1,6 @@
 # Feature 061: Interactive TUI
 
-## Status: Planned
+## Status: Done
 ## Phase: 7 (v2.7)
 ## Priority: High
 

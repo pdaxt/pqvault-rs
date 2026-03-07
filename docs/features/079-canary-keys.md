@@ -1,6 +1,6 @@
 # Feature 079: Canary Keys
 
-## Status: Planned
+## Status: Done
 ## Phase: 8 (v2.8)
 ## Priority: Low
 

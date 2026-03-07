@@ -1,6 +1,6 @@
 # Feature 074: Shamir's Secret Sharing
 
-## Status: Planned
+## Status: Done
 ## Phase: 8 (v2.8)
 ## Priority: High
 

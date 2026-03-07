@@ -1,6 +1,6 @@
 # Feature 072: Breach Database Cross-Reference
 
-## Status: Planned
+## Status: Done
 ## Phase: 8 (v2.8)
 ## Priority: High
 

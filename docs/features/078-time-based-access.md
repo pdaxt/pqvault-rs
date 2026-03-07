@@ -1,6 +1,6 @@
 # Feature 078: Time-Based Access
 
-## Status: Planned
+## Status: Done
 ## Phase: 8 (v2.8)
 ## Priority: Low
 

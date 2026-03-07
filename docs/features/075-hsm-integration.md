@@ -1,6 +1,6 @@
 # Feature 075: HSM Integration
 
-## Status: Planned
+## Status: Done
 ## Phase: 8 (v2.8)
 ## Priority: Medium
 

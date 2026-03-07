@@ -1,6 +1,6 @@
 # Feature 077: IP Allowlisting
 
-## Status: Planned
+## Status: Done
 ## Phase: 8 (v2.8)
 ## Priority: Medium
 

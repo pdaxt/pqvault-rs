@@ -1,6 +1,6 @@
 # Feature 081: Dark/Light Theme Toggle
 
-## Status: Planned
+## Status: Done
 ## Phase: 9 (v2.9)
 ## Priority: Medium
 

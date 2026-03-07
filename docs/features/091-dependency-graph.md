@@ -1,6 +1,6 @@
 # Feature 091: Dependency Graph
 
-## Status: Planned
+## Status: Done
 ## Phase: 10 (v3.0)
 ## Priority: High
 

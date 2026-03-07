@@ -1,6 +1,6 @@
 # Feature 073: Entropy Analysis
 
-## Status: Planned
+## Status: Done
 ## Phase: 8 (v2.8)
 ## Priority: High
 

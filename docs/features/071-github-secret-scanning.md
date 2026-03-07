@@ -1,6 +1,6 @@
 # Feature 071: GitHub Secret Scanning
 
-## Status: Planned
+## Status: Done
 ## Phase: 8 (v2.8)
 ## Priority: Critical
 

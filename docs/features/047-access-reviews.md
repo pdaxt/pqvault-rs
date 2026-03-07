@@ -1,6 +1,6 @@
 # Feature 047: Access Reviews
 
-## Status: Planned
+## Status: Done
 ## Phase: 5 (v2.5)
 ## Priority: Medium
 

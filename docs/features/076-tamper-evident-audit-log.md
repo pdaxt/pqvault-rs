@@ -1,6 +1,6 @@
 # Feature 076: Tamper-Evident Audit Log
 
-## Status: Planned
+## Status: Done
 ## Phase: 8 (v2.8)
 ## Priority: Medium
 

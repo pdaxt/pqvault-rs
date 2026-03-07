@@ -1,6 +1,6 @@
 # Feature 086: API Playground
 
-## Status: Planned
+## Status: Done
 ## Phase: 9 (v2.9)
 ## Priority: Medium
 

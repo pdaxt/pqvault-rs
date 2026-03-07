@@ -1,6 +1,6 @@
 # Feature 058: 1Password Import/Export
 
-## Status: Planned
+## Status: Done
 ## Phase: 6 (v2.6)
 ## Priority: Medium
 

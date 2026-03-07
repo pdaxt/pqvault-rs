@@ -1,6 +1,6 @@
 # Feature 087: Keyboard Shortcuts
 
-## Status: Planned
+## Status: Done
 ## Phase: 9 (v2.9)
 ## Priority: Low
 

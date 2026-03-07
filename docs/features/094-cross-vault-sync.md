@@ -1,6 +1,6 @@
 # Feature 094: Cross-Vault Sync
 
-## Status: Planned
+## Status: Done
 ## Phase: 10 (v3.0)
 ## Priority: Medium
 

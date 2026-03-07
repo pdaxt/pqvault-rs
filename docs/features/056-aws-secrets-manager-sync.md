@@ -1,6 +1,6 @@
 # Feature 056: AWS Secrets Manager Sync
 
-## Status: Planned
+## Status: Done
 ## Phase: 6 (v2.6)
 ## Priority: Medium
 

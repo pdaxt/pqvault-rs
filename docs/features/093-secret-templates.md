@@ -1,6 +1,6 @@
 # Feature 093: Secret Templates
 
-## Status: Planned
+## Status: Done
 ## Phase: 10 (v3.0)
 ## Priority: Medium
 

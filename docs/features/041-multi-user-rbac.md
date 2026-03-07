@@ -1,6 +1,6 @@
 # Feature 041: Multi-User RBAC
 
-## Status: Planned
+## Status: Done
 ## Phase: 5 (v2.5)
 ## Priority: Critical
 

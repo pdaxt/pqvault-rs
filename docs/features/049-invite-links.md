@@ -1,6 +1,6 @@
 # Feature 049: Invite Links
 
-## Status: Planned
+## Status: Done
 ## Phase: 5 (v2.5)
 ## Priority: Low
 

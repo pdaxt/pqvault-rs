@@ -1,6 +1,6 @@
 # Feature 082: Key Detail Page
 
-## Status: Planned
+## Status: Done
 ## Phase: 9 (v2.9)
 ## Priority: High
 

@@ -1,6 +1,6 @@
 # Feature 100: Self-Destructing Secrets
 
-## Status: Planned
+## Status: Done
 ## Phase: 10 (v3.0)
 ## Priority: Low
 

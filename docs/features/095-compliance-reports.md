@@ -1,6 +1,6 @@
 # Feature 095: Compliance Reports
 
-## Status: Planned
+## Status: Done
 ## Phase: 10 (v3.0)
 ## Priority: Medium
 

@@ -1,6 +1,6 @@
 # Feature 046: Key Ownership
 
-## Status: Planned
+## Status: Done
 ## Phase: 5 (v2.5)
 ## Priority: Medium
 

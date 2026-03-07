@@ -1,6 +1,6 @@
 # Feature 069: pqvault tree
 
-## Status: Planned
+## Status: Done
 ## Phase: 7 (v2.7)
 ## Priority: Low
 

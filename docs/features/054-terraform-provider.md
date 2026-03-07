@@ -1,6 +1,6 @@
 # Feature 054: Terraform Provider
 
-## Status: Planned
+## Status: Done
 ## Phase: 6 (v2.6)
 ## Priority: High
 

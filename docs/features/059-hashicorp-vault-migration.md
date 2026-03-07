@@ -1,6 +1,6 @@
 # Feature 059: HashiCorp Vault Migration
 
-## Status: Planned
+## Status: Done
 ## Phase: 6 (v2.6)
 ## Priority: Low
 

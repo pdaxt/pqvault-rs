@@ -1,6 +1,6 @@
 # Feature 063: pqvault sync
 
-## Status: Planned
+## Status: Done
 ## Phase: 7 (v2.7)
 ## Priority: High
 

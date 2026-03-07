@@ -1,6 +1,6 @@
 # Feature 064: Fuzzy Search
 
-## Status: Planned
+## Status: Done
 ## Phase: 7 (v2.7)
 ## Priority: Medium
 

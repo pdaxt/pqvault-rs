@@ -1,6 +1,6 @@
 # Feature 044: Approval Workflows
 
-## Status: Planned
+## Status: Done
 ## Phase: 5 (v2.5)
 ## Priority: High
 

@@ -1,6 +1,6 @@
 # Feature 066: pqvault bulk
 
-## Status: Planned
+## Status: Done
 ## Phase: 7 (v2.7)
 ## Priority: Medium
 

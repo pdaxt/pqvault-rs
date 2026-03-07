@@ -1,6 +1,6 @@
 # Feature 057: GCP Secret Manager Sync
 
-## Status: Planned
+## Status: Done
 ## Phase: 6 (v2.6)
 ## Priority: Medium
 

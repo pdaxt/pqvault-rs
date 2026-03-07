@@ -1,6 +1,6 @@
 # Feature 099: Vault-to-Vault Migration
 
-## Status: Planned
+## Status: Done
 ## Phase: 10 (v3.0)
 ## Priority: Low
 

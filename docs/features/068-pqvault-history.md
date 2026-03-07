@@ -1,6 +1,6 @@
 # Feature 068: pqvault history
 
-## Status: Planned
+## Status: Done
 ## Phase: 7 (v2.7)
 ## Priority: Medium
 

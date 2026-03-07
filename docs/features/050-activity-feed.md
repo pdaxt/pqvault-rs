@@ -1,6 +1,6 @@
 # Feature 050: Activity Feed
 
-## Status: Planned
+## Status: Done
 ## Phase: 5 (v2.5)
 ## Priority: Low
 

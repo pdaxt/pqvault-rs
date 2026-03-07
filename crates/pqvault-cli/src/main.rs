@@ -204,6 +204,28 @@ enum Commands {
         #[arg(short, long, default_value_t = 10)]
         limit: usize,
     },
+    /// Compare secrets between two projects
+    Diff {
+        /// First project
+        project_a: String,
+        /// Second project
+        project_b: String,
+    },
+    /// Show secret tree organized by category and project
+    Tree,
+    /// Analyze entropy of all secret values
+    Entropy,
+    /// Tag a secret
+    Tag {
+        /// Key name
+        key: String,
+        /// Tags to add (comma-separated)
+        #[arg(short, long)]
+        add: Option<String>,
+        /// Tags to remove (comma-separated)
+        #[arg(short, long)]
+        remove: Option<String>,
+    },
     /// Comprehensive vault health check
     Doctor,
     /// Export secrets for a project
@@ -225,6 +247,24 @@ fn require_vault() -> Result<models::VaultData> {
         bail!("No vault found. Run 'pqvault init' first.");
     }
     Ok(vault::open_vault()?)
+}
+
+/// Calculate Shannon entropy of a string (bits per character)
+fn shannon_entropy(s: &str) -> f64 {
+    if s.is_empty() {
+        return 0.0;
+    }
+    let mut freq = std::collections::HashMap::new();
+    let len = s.len() as f64;
+    for c in s.chars() {
+        *freq.entry(c).or_insert(0u64) += 1;
+    }
+    freq.values()
+        .map(|&count| {
+            let p = count as f64 / len;
+            -p * p.log2()
+        })
+        .sum()
 }
 
 fn parse_env_content(content: &str) -> Vec<(String, String)> {
@@ -1285,6 +1325,149 @@ async fn main() -> Result<()> {
                     println!();
                 }
             }
+            Ok(())
+        }
+        Commands::Diff { project_a, project_b } => {
+            let data = require_vault()?;
+
+            let keys_a: Vec<&String> = data.secrets.iter()
+                .filter(|(_, s)| s.projects.contains(&project_a))
+                .map(|(name, _)| name)
+                .collect();
+            let keys_b: Vec<&String> = data.secrets.iter()
+                .filter(|(_, s)| s.projects.contains(&project_b))
+                .map(|(name, _)| name)
+                .collect();
+
+            let set_a: std::collections::HashSet<&String> = keys_a.iter().copied().collect();
+            let set_b: std::collections::HashSet<&String> = keys_b.iter().copied().collect();
+
+            let only_a: Vec<&&String> = set_a.difference(&set_b).collect();
+            let only_b: Vec<&&String> = set_b.difference(&set_a).collect();
+            let both: Vec<&&String> = set_a.intersection(&set_b).collect();
+
+            println!("Diff: {} vs {}\n", project_a, project_b);
+            println!("  Shared:        {}", both.len());
+            println!("  Only in {}:  {}", project_a, only_a.len());
+            println!("  Only in {}:  {}", project_b, only_b.len());
+
+            if !only_a.is_empty() {
+                println!("\nOnly in {}:", project_a);
+                for k in &only_a {
+                    println!("  + {}", k);
+                }
+            }
+            if !only_b.is_empty() {
+                println!("\nOnly in {}:", project_b);
+                for k in &only_b {
+                    println!("  + {}", k);
+                }
+            }
+            if !both.is_empty() {
+                println!("\nShared keys:");
+                for k in &both {
+                    println!("  = {}", k);
+                }
+            }
+            Ok(())
+        }
+        Commands::Tree => {
+            let data = require_vault()?;
+
+            // Group by category, then by project
+            let mut tree: std::collections::BTreeMap<String, std::collections::BTreeMap<String, Vec<String>>> =
+                std::collections::BTreeMap::new();
+
+            for (name, secret) in &data.secrets {
+                let cat = &secret.category;
+                let projs = if secret.projects.is_empty() {
+                    vec!["(unassigned)".to_string()]
+                } else {
+                    secret.projects.clone()
+                };
+
+                for proj in &projs {
+                    tree.entry(cat.clone())
+                        .or_default()
+                        .entry(proj.clone())
+                        .or_default()
+                        .push(name.clone());
+                }
+            }
+
+            println!("Vault Tree ({} secrets)\n", data.secrets.len());
+            for (cat, projects) in &tree {
+                let cat_count: usize = projects.values().map(|v| v.len()).sum();
+                println!("{} ({})", cat, cat_count);
+                let proj_count = projects.len();
+                for (i, (proj, keys)) in projects.iter().enumerate() {
+                    let is_last_proj = i == proj_count - 1;
+                    let proj_prefix = if is_last_proj { "└── " } else { "├── " };
+                    println!("  {}{} ({})", proj_prefix, proj, keys.len());
+                    let key_prefix = if is_last_proj { "    " } else { "│   " };
+                    for (j, key) in keys.iter().enumerate() {
+                        let is_last_key = j == keys.len() - 1;
+                        let key_branch = if is_last_key { "└── " } else { "├── " };
+                        println!("  {}{}{}", key_prefix, key_branch, key);
+                    }
+                }
+                println!();
+            }
+            Ok(())
+        }
+        Commands::Entropy => {
+            let data = require_vault()?;
+
+            println!("{:<40} {:>8} {:>8} {}", "KEY", "LENGTH", "ENTROPY", "RATING");
+            println!("{}", "-".repeat(72));
+
+            let mut entries: Vec<_> = data.secrets.iter().collect();
+            entries.sort_by_key(|(name, _)| name.to_string());
+
+            for (name, secret) in &entries {
+                let val = &secret.value;
+                let len = val.len();
+                let entropy = shannon_entropy(val);
+                let rating = if entropy > 4.5 {
+                    "HIGH"
+                } else if entropy > 3.0 {
+                    "MEDIUM"
+                } else if len < 8 {
+                    "WEAK"
+                } else {
+                    "LOW"
+                };
+                println!("{:<40} {:>8} {:>7.2} {}", name, len, entropy, rating);
+            }
+            Ok(())
+        }
+        Commands::Tag { key, add, remove } => {
+            let mut data = require_vault()?;
+            let secret = match data.secrets.get_mut(&key) {
+                Some(s) => s,
+                None => bail!("Key not found: {}", key),
+            };
+
+            if let Some(tags) = add {
+                for tag in tags.split(',').map(|s| s.trim().to_string()) {
+                    if !secret.tags.contains(&tag) {
+                        secret.tags.push(tag.clone());
+                        println!("  Added tag: {}", tag);
+                    }
+                }
+            }
+
+            if let Some(tags) = remove {
+                for tag in tags.split(',').map(|s| s.trim()) {
+                    if let Some(pos) = secret.tags.iter().position(|t| t == tag) {
+                        secret.tags.remove(pos);
+                        println!("  Removed tag: {}", tag);
+                    }
+                }
+            }
+
+            println!("Tags for {}: [{}]", key, secret.tags.join(", "));
+            vault::save_vault(&data)?;
             Ok(())
         }
         Commands::Doctor => {

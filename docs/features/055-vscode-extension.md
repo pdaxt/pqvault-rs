@@ -1,6 +1,6 @@
 # Feature 055: VS Code Extension
 
-## Status: Planned
+## Status: Done
 ## Phase: 6 (v2.6)
 ## Priority: Medium
 

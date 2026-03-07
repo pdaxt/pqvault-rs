@@ -1,6 +1,6 @@
 # Feature 096: GitOps for Secrets
 
-## Status: Planned
+## Status: Done
 ## Phase: 10 (v3.0)
 ## Priority: Medium
 
