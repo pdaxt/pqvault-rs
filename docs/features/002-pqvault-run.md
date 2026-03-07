@@ -1,6 +1,6 @@
 # Feature 002: pqvault run
 
-## Status: Planned
+## Status: Done
 ## Phase: 1 (v2.1)
 ## Priority: Critical
 

@@ -1,6 +1,6 @@
 # Feature 008: Export Secrets
 
-## Status: Planned
+## Status: Done
 ## Phase: 1 (v2.1)
 ## Priority: Medium
 

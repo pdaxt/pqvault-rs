@@ -1,5 +1,36 @@
 use crate::models::VaultData;
 
+/// Get all secrets for a project as (KEY_NAME, value) pairs.
+/// Looks at both ProjectEntry.keys and SecretEntry.projects.
+pub fn get_project_secrets(vault: &VaultData, project_name: &str) -> Vec<(String, String)> {
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::new();
+
+    // First: keys listed in the project entry
+    if let Some(proj) = vault.projects.get(project_name) {
+        for key_name in &proj.keys {
+            if let Some(secret) = vault.secrets.get(key_name.as_str()) {
+                if seen.insert(key_name.clone()) {
+                    result.push((key_name.clone(), secret.value.clone()));
+                }
+            }
+        }
+    }
+
+    // Second: any secret that lists this project in its projects field
+    let mut extra: Vec<_> = vault
+        .secrets
+        .iter()
+        .filter(|(k, s)| s.projects.contains(&project_name.to_string()) && !seen.contains(*k))
+        .collect();
+    extra.sort_by_key(|(k, _)| k.to_string());
+    for (k, s) in extra {
+        result.push((k.clone(), s.value.clone()));
+    }
+
+    result
+}
+
 pub fn generate_env(vault: &VaultData, project_name: &str) -> Result<String, String> {
     let project = vault
         .projects

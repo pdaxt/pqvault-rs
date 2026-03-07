@@ -1,6 +1,6 @@
 # Feature 010: File-Watch Vault Reload
 
-## Status: Planned
+## Status: Done
 ## Phase: 1 (v2.1)
 ## Priority: High
 

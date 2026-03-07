@@ -1,6 +1,6 @@
 # Feature 003: .env File Import
 
-## Status: Planned
+## Status: Done
 ## Phase: 1 (v2.1)
 ## Priority: Critical
 

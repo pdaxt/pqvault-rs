@@ -95,7 +95,7 @@ fn load_x25519_private(master_pw: &str) -> anyhow::Result<StaticSecret> {
     Ok(StaticSecret::from(bytes))
 }
 
-fn save_vault_internal(data: &VaultData, master_pw: &str) -> anyhow::Result<()> {
+fn save_vault_internal(data: &VaultData, _master_pw: &str) -> anyhow::Result<()> {
     let plaintext = serde_json::to_string_pretty(data)?.into_bytes();
     let pq_public = fs::read(pq_public_file())?;
     let x25519_public = fs::read(x25519_public_file())?;

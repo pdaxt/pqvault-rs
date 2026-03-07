@@ -1,6 +1,6 @@
 # Feature 007: Shell Completions
 
-## Status: Planned
+## Status: Done
 ## Phase: 1 (v2.1)
 ## Priority: Medium
 

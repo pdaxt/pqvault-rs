@@ -42,6 +42,7 @@ keyring = { version = "3", features = ["apple-native"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 
 # HTTP
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
@@ -49,8 +50,11 @@ url = "2"
 base64 = "0.22"
 
 # Web
-axum = "0.8"
+axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
+
+# File watching
+notify = "6"
 
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }
