@@ -136,26 +136,28 @@ pub fn save_vault(data: &VaultData) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Auto-reloading vault holder. Checks file mtime before each access
+/// Auto-reloading vault holder. Checks file mtime and size before each access
 /// and reloads from disk if another process has updated the vault file.
 pub struct VaultHolder {
     data: Option<VaultData>,
     loaded_mtime: Option<std::time::SystemTime>,
+    loaded_size: u64,
 }
 
 impl VaultHolder {
     pub fn new() -> Self {
-        let (data, mtime) = if vault_exists() {
-            let mtime = fs::metadata(vault_file())
-                .ok()
-                .and_then(|m| m.modified().ok());
-            (open_vault().ok(), mtime)
+        let (data, mtime, size) = if vault_exists() {
+            let meta = fs::metadata(vault_file()).ok();
+            let mtime = meta.as_ref().and_then(|m| m.modified().ok());
+            let size = meta.map(|m| m.len()).unwrap_or(0);
+            (open_vault().ok(), mtime, size)
         } else {
-            (None, None)
+            (None, None, 0)
         };
         Self {
             data,
             loaded_mtime: mtime,
+            loaded_size: size,
         }
     }
 
@@ -171,21 +173,22 @@ impl VaultHolder {
         self.data.as_mut()
     }
 
-    /// After saving vault to disk, update our mtime so we don't reload our own write.
+    /// After saving vault to disk, update our mtime/size so we don't reload our own write.
     pub fn mark_saved(&mut self) {
-        self.loaded_mtime = fs::metadata(vault_file())
-            .ok()
-            .and_then(|m| m.modified().ok());
+        let meta = fs::metadata(vault_file()).ok();
+        self.loaded_mtime = meta.as_ref().and_then(|m| m.modified().ok());
+        self.loaded_size = meta.map(|m| m.len()).unwrap_or(0);
     }
 
     fn reload_if_stale(&mut self) {
-        let current_mtime = fs::metadata(vault_file())
-            .ok()
-            .and_then(|m| m.modified().ok());
-        if current_mtime != self.loaded_mtime {
+        let meta = fs::metadata(vault_file()).ok();
+        let current_mtime = meta.as_ref().and_then(|m| m.modified().ok());
+        let current_size = meta.map(|m| m.len()).unwrap_or(0);
+        if current_mtime != self.loaded_mtime || current_size != self.loaded_size {
             if let Ok(data) = open_vault() {
                 self.data = Some(data);
                 self.loaded_mtime = current_mtime;
+                self.loaded_size = current_size;
                 tracing::info!("Vault reloaded from disk (file changed by another process)");
             }
         }
