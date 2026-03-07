@@ -8,6 +8,7 @@ use axum::{
         Path, Query, State,
     },
     http::StatusCode,
+    middleware,
     response::{Html, IntoResponse},
     routing::{delete, get, post, put},
     Json, Router,
@@ -23,6 +24,8 @@ use pqvault_core::models::{auto_categorize, mask_value, SecretEntry};
 use pqvault_core::providers::{get_provider, AuthMethod};
 use pqvault_core::smart::UsageTracker;
 use pqvault_core::vault::{meta_file, open_vault, save_vault, vault_file};
+
+use crate::auth;
 
 struct AppState {
     vault: Mutex<pqvault_core::models::VaultData>,
@@ -189,6 +192,10 @@ fn build_secret_info(
 
 async fn index_handler() -> Html<&'static str> {
     Html(DASHBOARD_HTML)
+}
+
+async fn login_page_handler() -> Html<&'static str> {
+    Html(LOGIN_HTML)
 }
 
 async fn status_handler(State(state): State<Arc<AppState>>) -> Json<StatusResponse> {
@@ -771,6 +778,7 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
 pub async fn start_web(port: u16) -> anyhow::Result<()> {
     let vault_data = open_vault()?;
     let (reload_tx, _) = broadcast::channel::<String>(16);
+    let sessions = auth::new_sessions();
 
     let state = Arc::new(AppState {
         vault: Mutex::new(vault_data),
@@ -864,6 +872,21 @@ pub async fn start_web(port: u16) -> anyhow::Result<()> {
     });
 
     let app = Router::new()
+        // Auth routes (public)
+        .route("/login", get(login_page_handler))
+        .route(
+            "/api/auth/login",
+            post(auth::login_handler).with_state(sessions.clone()),
+        )
+        .route(
+            "/api/auth/logout",
+            post(auth::logout_handler).with_state(sessions.clone()),
+        )
+        .route(
+            "/api/auth/session",
+            get(auth::session_handler).with_state(sessions.clone()),
+        )
+        // Protected routes
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
         .route("/api/status", get(status_handler))
@@ -875,6 +898,10 @@ pub async fn start_web(port: u16) -> anyhow::Result<()> {
         .route("/api/secrets/{key}/verify", post(verify_handler))
         .route("/api/health", get(health_handler))
         .route("/api/search", get(search_handler))
+        .layer(middleware::from_fn_with_state(
+            sessions.clone(),
+            auth::auth_middleware,
+        ))
         .with_state(state);
 
     let addr = format!("127.0.0.1:{}", port);
@@ -886,5 +913,6 @@ pub async fn start_web(port: u16) -> anyhow::Result<()> {
     Ok(())
 }
 
-// Dashboard HTML loaded from separate static file at compile time
+// HTML loaded from separate static files at compile time
 const DASHBOARD_HTML: &str = include_str!("../static/index.html");
+const LOGIN_HTML: &str = include_str!("../static/login.html");

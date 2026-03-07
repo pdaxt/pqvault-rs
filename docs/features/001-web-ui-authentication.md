@@ -1,6 +1,6 @@
 # Feature 001: Web UI Authentication
 
-## Status: Planned
+## Status: Done
 ## Phase: 1 (v2.1)
 ## Priority: Critical
 

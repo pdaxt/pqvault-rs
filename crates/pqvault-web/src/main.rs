@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 
+mod auth;
 mod web;
 
 #[derive(Parser)]
