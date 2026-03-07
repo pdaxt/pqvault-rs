@@ -166,6 +166,44 @@ enum Commands {
         #[arg(short, long)]
         version: Option<usize>,
     },
+    /// Create an agent token with scoped access
+    AgentCreate {
+        /// Agent name
+        name: String,
+        /// Allowed key names (comma-separated, * for all)
+        #[arg(short = 'k', long)]
+        keys: Option<String>,
+        /// Allowed categories (comma-separated, * for all)
+        #[arg(short = 'c', long)]
+        categories: Option<String>,
+        /// Token expiry in hours
+        #[arg(short, long)]
+        expires: Option<i64>,
+        /// Monthly budget cap in USD
+        #[arg(short, long)]
+        budget: Option<f64>,
+        /// Max requests per hour
+        #[arg(long)]
+        rate_limit: Option<u32>,
+    },
+    /// List agent tokens
+    AgentList,
+    /// Revoke an agent token
+    AgentRevoke {
+        /// Agent ID
+        id: String,
+    },
+    /// Search secrets using natural language (fuzzy matching)
+    Search {
+        /// Search query (e.g., "stripe production key")
+        query: String,
+        /// Minimum relevance score (default: 1.0)
+        #[arg(long, default_value_t = 1.0)]
+        min_score: f64,
+        /// Maximum results (default: 10)
+        #[arg(short, long, default_value_t = 10)]
+        limit: usize,
+    },
     /// Comprehensive vault health check
     Doctor,
     /// Export secrets for a project
@@ -1096,6 +1134,157 @@ async fn main() -> Result<()> {
                 ver_idx + 1,
                 rollback_from
             );
+            Ok(())
+        }
+        Commands::AgentCreate {
+            name,
+            keys,
+            categories,
+            expires,
+            budget,
+            rate_limit,
+        } => {
+            let _ = require_vault()?; // ensure vault exists
+
+            let allowed_keys: Vec<String> = keys
+                .map(|k| k.split(',').map(|s| s.trim().to_string()).collect())
+                .unwrap_or_default();
+            let allowed_categories: Vec<String> = categories
+                .map(|c| c.split(',').map(|s| s.trim().to_string()).collect())
+                .unwrap_or_default();
+
+            let agent = pqvault_core::agent::create_agent(
+                &name,
+                allowed_keys.clone(),
+                allowed_categories.clone(),
+                expires,
+                budget,
+                rate_limit,
+            );
+
+            println!("Agent created: {}", agent.name);
+            println!("  ID:    {}", agent.id);
+            println!("  Token: {}", agent.token);
+            if !allowed_keys.is_empty() {
+                println!("  Keys:  {}", allowed_keys.join(", "));
+            }
+            if !allowed_categories.is_empty() {
+                println!("  Categories: {}", allowed_categories.join(", "));
+            }
+            if let Some(ref exp) = agent.expires {
+                println!("  Expires: {}", exp);
+            }
+            if let Some(ref b) = agent.budget {
+                println!("  Budget: ${:.2}/month", b.max_monthly_usd);
+                if let Some(rph) = b.max_requests_per_hour {
+                    println!("  Rate:   {}/hour", rph);
+                }
+            }
+            println!("\nUse this token in agent requests to access scoped secrets.");
+            Ok(())
+        }
+        Commands::AgentList => {
+            let _ = require_vault()?;
+            let agents = pqvault_core::agent::list_agents();
+
+            if agents.is_empty() {
+                println!("No agent tokens configured.");
+                return Ok(());
+            }
+
+            println!(
+                "{:<12} {:<20} {:<8} {:<8} {:<10} {}",
+                "ID", "Name", "Active", "Requests", "Budget", "Expires"
+            );
+            println!("{}", "-".repeat(75));
+
+            for a in &agents {
+                let budget_str = a
+                    .budget
+                    .as_ref()
+                    .map(|b| {
+                        if b.circuit_breaker_triggered {
+                            format!("${:.0} TRIPPED", b.max_monthly_usd)
+                        } else {
+                            format!("${:.0}/${:.0}", b.current_monthly_usd, b.max_monthly_usd)
+                        }
+                    })
+                    .unwrap_or_else(|| "-".to_string());
+
+                let expires_str = a
+                    .expires
+                    .as_ref()
+                    .map(|e| {
+                        if let Ok(exp) = chrono::DateTime::parse_from_rfc3339(e) {
+                            if chrono::Local::now() > exp {
+                                "EXPIRED".to_string()
+                            } else {
+                                let remaining = exp.signed_duration_since(chrono::Local::now());
+                                format!("{}h", remaining.num_hours())
+                            }
+                        } else {
+                            e.clone()
+                        }
+                    })
+                    .unwrap_or_else(|| "never".to_string());
+
+                println!(
+                    "{:<12} {:<20} {:<8} {:<8} {:<10} {}",
+                    a.id,
+                    a.name,
+                    if a.active { "yes" } else { "REVOKED" },
+                    a.total_requests,
+                    budget_str,
+                    expires_str
+                );
+            }
+            Ok(())
+        }
+        Commands::AgentRevoke { id } => {
+            let _ = require_vault()?;
+            match pqvault_core::agent::revoke_agent(&id) {
+                Some(name) => println!("Revoked agent '{}' ({})", name, id),
+                None => eprintln!("Agent not found: {}", id),
+            }
+            Ok(())
+        }
+        Commands::Search { query, min_score, limit } => {
+            let data = require_vault()?;
+            let results = pqvault_core::search::search_secrets(
+                &data.secrets, &query, min_score, limit,
+            );
+
+            if results.is_empty() {
+                println!("No results for \"{}\" (min_score: {:.1})", query, min_score);
+                return Ok(());
+            }
+
+            println!("Search: \"{}\" ({} results)\n", query, results.len());
+            for (i, r) in results.iter().enumerate() {
+                let proj = if r.projects.is_empty() {
+                    "-".to_string()
+                } else {
+                    r.projects.join(", ")
+                };
+                let lifecycle_tag = if r.lifecycle != "active" {
+                    format!(" [{}]", r.lifecycle.to_uppercase())
+                } else {
+                    String::new()
+                };
+                println!(
+                    "  {}. {} (score: {:.1}){}\n     Category: {} | Project: {}\n     Matched: {}",
+                    i + 1,
+                    r.key_name,
+                    r.score,
+                    lifecycle_tag,
+                    r.category,
+                    proj,
+                    r.match_reasons.join(", "),
+                );
+                if i < results.len() - 1 {
+                    println!();
+                }
+            }
             Ok(())
         }
         Commands::Doctor => {

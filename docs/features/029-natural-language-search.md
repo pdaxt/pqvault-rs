@@ -1,6 +1,6 @@
 # Feature 029: Natural Language Search
 
-## Status: Planned
+## Status: Done
 ## Phase: 3 (v2.3)
 ## Priority: Low
 

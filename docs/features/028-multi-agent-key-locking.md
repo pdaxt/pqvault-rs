@@ -1,6 +1,6 @@
 # Feature 028: Multi-Agent Key Locking
 
-## Status: Planned
+## Status: Done
 ## Phase: 3 (v2.3)
 ## Priority: Medium
 

@@ -1,6 +1,6 @@
 # Feature 027: Agent Sandboxing Levels
 
-## Status: Planned
+## Status: Done
 ## Phase: 3 (v2.3)
 ## Priority: Medium
 

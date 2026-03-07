@@ -1,6 +1,6 @@
 # Feature 022: Per-Agent Budget Caps
 
-## Status: Planned
+## Status: Done
 ## Phase: 3 (v2.3)
 ## Priority: Critical
 

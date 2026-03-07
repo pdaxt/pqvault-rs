@@ -1,6 +1,6 @@
 # Feature 021: Agent-Scoped Tokens
 
-## Status: Planned
+## Status: Done
 ## Phase: 3 (v2.3)
 ## Priority: Critical
 

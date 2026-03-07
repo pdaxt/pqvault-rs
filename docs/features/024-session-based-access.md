@@ -1,6 +1,6 @@
 # Feature 024: Session-Based Access
 
-## Status: Planned
+## Status: Done
 ## Phase: 3 (v2.3)
 ## Priority: High
 

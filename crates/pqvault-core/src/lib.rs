@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod audit;
 pub mod crypto;
 pub mod env_gen;
@@ -6,5 +7,6 @@ pub mod keychain;
 pub mod models;
 pub mod providers;
 pub mod proxy;
+pub mod search;
 pub mod smart;
 pub mod vault;

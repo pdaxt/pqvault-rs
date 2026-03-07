@@ -1,6 +1,6 @@
 # Feature 025: Usage Attribution Dashboard
 
-## Status: Planned
+## Status: Done
 ## Phase: 3 (v2.3)
 ## Priority: High
 
