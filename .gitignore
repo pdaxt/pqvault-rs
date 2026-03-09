@@ -19,3 +19,5 @@ service-account.json
 *.db
 *.db-shm
 *.db-wal
+.mcpregistry_*
+*.mcpregistry*

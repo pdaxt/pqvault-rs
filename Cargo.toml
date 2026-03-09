@@ -6,6 +6,7 @@ members = [
     "crates/pqvault-proxy-mcp",
     "crates/pqvault-health-mcp",
     "crates/pqvault-env-mcp",
+    "crates/pqvault-unified",
     "crates/pqvault-cli",
     "crates/pqvault-web",
 ]
