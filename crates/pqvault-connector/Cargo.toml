@@ -1,0 +1,27 @@
+[package]
+name = "pqvault-connector"
+version.workspace = true
+edition.workspace = true
+description = "PQVault Claude Custom Connector — MCP over Streamable HTTP for claude.ai"
+
+[[bin]]
+name = "pqvault-connector"
+path = "src/main.rs"
+
+[dependencies]
+pqvault-unified = { path = "../pqvault-unified" }
+rmcp = { version = "1.2", features = [
+    "server",
+    "macros",
+    "transport-streamable-http-server",
+    "schemars",
+] }
+tokio = { workspace = true, features = ["signal"] }
+axum = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+anyhow = { workspace = true }

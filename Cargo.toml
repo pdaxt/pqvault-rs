@@ -9,6 +9,7 @@ members = [
     "crates/pqvault-unified",
     "crates/pqvault-cli",
     "crates/pqvault-web",
+    "crates/pqvault-connector",
 ]
 
 [workspace.package]

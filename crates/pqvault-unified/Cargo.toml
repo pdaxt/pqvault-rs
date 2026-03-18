@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 description = "PQVault unified MCP: all 14 vault tools in a single server"
 
+[lib]
+name = "pqvault_unified"
+path = "src/lib.rs"
+
 [[bin]]
 name = "pqvault-unified"
 path = "src/main.rs"

@@ -1,0 +1,11 @@
+target/
+.git/
+.fastembed_cache/
+*.db
+*.db-shm
+*.db-wal
+firebase-debug.log
+npm/
+docs/
+tests/
+server.json

@@ -1,0 +1,16 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--no-cache'
+      - '-t'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/pqvault-connector:$SHORT_SHA'
+      - '-t'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/pqvault-connector:latest'
+      - '.'
+images:
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/pqvault-connector:$SHORT_SHA'
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/pqvault-connector:latest'
+options:
+  machineType: 'E2_HIGHCPU_8'
+timeout: '1200s'
