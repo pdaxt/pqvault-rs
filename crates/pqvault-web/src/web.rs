@@ -20,15 +20,15 @@ use tokio::sync::{broadcast, Mutex};
 
 use pqvault_core::audit::log_access;
 use pqvault_core::health::check_health;
-use pqvault_core::models::{auto_categorize, mask_value, SecretEntry};
+use pqvault_core::models::{auto_categorize, mask_value, SecretEntry, VaultData};
 use pqvault_core::providers::{get_provider, AuthMethod};
 use pqvault_core::smart::UsageTracker;
-use pqvault_core::vault::{meta_file, open_vault, save_vault, vault_file};
+use pqvault_core::vault::{meta_file, open_vault, save_vault, vault_exists, vault_file, VaultHolder};
 
 use crate::auth;
 
 struct AppState {
-    vault: Mutex<pqvault_core::models::VaultData>,
+    vault: Mutex<VaultData>,
     tracker: Mutex<UsageTracker>,
     http_client: reqwest::Client,
     reload_tx: broadcast::Sender<String>,
@@ -800,8 +800,16 @@ async fn handle_socket(mut socket: WebSocket, state: Arc<AppState>) {
 
 // --- Server startup ---
 
+/// Health check endpoint for Cloud Run / load balancers.
+async fn health_check() -> &'static str {
+    "ok"
+}
+
 pub async fn start_web(port: u16) -> anyhow::Result<()> {
-    let vault_data = open_vault()?;
+    // Use VaultHolder: gracefully handles missing vault (returns empty data)
+    let mut holder = VaultHolder::new();
+    let vault_data = holder.get().cloned().unwrap_or_default();
+
     let (reload_tx, _) = broadcast::channel::<String>(16);
     let sessions = auth::new_sessions();
 
@@ -814,89 +822,98 @@ pub async fn start_web(port: u16) -> anyhow::Result<()> {
         reload_tx: reload_tx.clone(),
     });
 
-    // File watcher for vault.enc
-    let watcher_state = state.clone();
-    let vault_path = vault_file();
-    let watch_dir = vault_path
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Vault path has no parent"))?
-        .to_path_buf();
-    let vault_filename = vault_path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string();
+    // File watcher for vault.enc — only when vault exists on disk
+    let _watcher: Option<RecommendedWatcher> = if vault_exists() {
+        let watcher_state = state.clone();
+        let vault_path = vault_file();
+        let watch_dir = vault_path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Vault path has no parent"))?
+            .to_path_buf();
+        let vault_filename = vault_path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
 
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<()>(100);
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<()>(100);
 
-    let _watcher = {
-        let event_tx = event_tx.clone();
-        let vault_filename = vault_filename.clone();
-        let mut watcher = RecommendedWatcher::new(
-            move |res: Result<notify::Event, notify::Error>| {
-                if let Ok(event) = res {
-                    match event.kind {
-                        EventKind::Modify(_) | EventKind::Create(_) => {
-                            let is_vault = event.paths.iter().any(|p| {
-                                p.file_name()
-                                    .map(|f| f.to_string_lossy() == vault_filename)
-                                    .unwrap_or(false)
-                            });
-                            if is_vault {
-                                let _ = event_tx.blocking_send(());
+        let watcher = {
+            let event_tx = event_tx.clone();
+            let vault_filename = vault_filename.clone();
+            let mut w = RecommendedWatcher::new(
+                move |res: Result<notify::Event, notify::Error>| {
+                    if let Ok(event) = res {
+                        match event.kind {
+                            EventKind::Modify(_) | EventKind::Create(_) => {
+                                let is_vault = event.paths.iter().any(|p| {
+                                    p.file_name()
+                                        .map(|f| f.to_string_lossy() == vault_filename)
+                                        .unwrap_or(false)
+                                });
+                                if is_vault {
+                                    let _ = event_tx.blocking_send(());
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                },
+                Config::default(),
+            )?;
+            w.watch(&watch_dir, RecursiveMode::NonRecursive)?;
+            w
+        };
+
+        let reload_tx = reload_tx.clone();
+        tokio::spawn(async move {
+            let mut pending = false;
+            loop {
+                tokio::select! {
+                    Some(()) = event_rx.recv() => {
+                        pending = true;
+                    }
+                    _ = tokio::time::sleep(Duration::from_millis(500)), if pending => {
+                        pending = false;
+                        match open_vault() {
+                            Ok(new_data) => {
+                                let count = new_data.secrets.len();
+                                let mut vault = watcher_state.vault.lock().await;
+                                *vault = new_data;
+                                drop(vault);
+                                let msg = serde_json::json!({
+                                    "type": "vault_reload",
+                                    "timestamp": chrono::Utc::now().to_rfc3339(),
+                                    "entry_count": count,
+                                });
+                                let _ = reload_tx.send(msg.to_string());
+                                tracing::info!("[watcher] Vault reloaded: {} entries", count);
+                            }
+                            Err(e) => {
+                                tracing::warn!("[watcher] Failed to reload vault: {}", e);
                             }
                         }
-                        _ => {}
                     }
-                }
-            },
-            Config::default(),
-        )?;
-        watcher.watch(&watch_dir, RecursiveMode::NonRecursive)?;
-        watcher // keep alive
-    };
-
-    // Debounced reload task
-    tokio::spawn(async move {
-        let mut pending = false;
-        loop {
-            tokio::select! {
-                Some(()) = event_rx.recv() => {
-                    pending = true;
-                }
-                _ = tokio::time::sleep(Duration::from_millis(500)), if pending => {
-                    pending = false;
-                    match open_vault() {
-                        Ok(new_data) => {
-                            let count = new_data.secrets.len();
-                            let mut vault = watcher_state.vault.lock().await;
-                            *vault = new_data;
-                            drop(vault);
-                            let msg = serde_json::json!({
-                                "type": "vault_reload",
-                                "timestamp": chrono::Utc::now().to_rfc3339(),
-                                "entry_count": count,
-                            });
-                            let _ = reload_tx.send(msg.to_string());
-                            eprintln!("[watcher] Vault reloaded: {} entries", count);
+                    else => {
+                        if event_rx.recv().await.is_some() {
+                            pending = true;
+                        } else {
+                            break;
                         }
-                        Err(e) => {
-                            eprintln!("[watcher] Failed to reload vault: {}", e);
-                        }
-                    }
-                }
-                else => {
-                    if event_rx.recv().await.is_some() {
-                        pending = true;
-                    } else {
-                        break;
                     }
                 }
             }
-        }
-    });
+        });
+
+        Some(watcher)
+    } else {
+        tracing::info!("No local vault — file watcher disabled (Cloud Run mode)");
+        None
+    };
 
     let app = Router::new()
+        // Health check (public, outside auth middleware)
+        .route("/health", get(health_check))
         // Auth routes (public)
         .route("/login", get(login_page_handler))
         .route(
@@ -929,9 +946,9 @@ pub async fn start_web(port: u16) -> anyhow::Result<()> {
         ))
         .with_state(state);
 
-    let addr = format!("127.0.0.1:{}", port);
-    eprintln!("PQVault Web UI: http://{}", addr);
-    eprintln!("File watcher: active (debounce: 500ms)");
+    // Bind to 0.0.0.0 for Cloud Run compatibility (also works locally)
+    let addr = format!("0.0.0.0:{}", port);
+    tracing::info!("PQVault Web UI: http://localhost:{}", port);
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;

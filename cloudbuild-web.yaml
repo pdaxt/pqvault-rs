@@ -1,0 +1,18 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--no-cache'
+      - '-f'
+      - 'Dockerfile.web'
+      - '-t'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/pqvault-web:$_TAG'
+      - '-t'
+      - 'asia-south1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/pqvault-web:latest'
+      - '.'
+images:
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/pqvault-web:$_TAG'
+  - 'asia-south1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/pqvault-web:latest'
+options:
+  machineType: 'E2_HIGHCPU_8'
+timeout: '1200s'

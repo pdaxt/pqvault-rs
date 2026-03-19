@@ -104,14 +104,25 @@ pub struct SessionInfo {
 
 // --- Handlers ---
 
+/// Get the web auth password: env var first (Cloud Run), then keychain (local).
+fn get_web_password() -> Option<String> {
+    // 1. PQVAULT_WEB_PASSWORD env var (Cloud Run / Docker)
+    if let Ok(pw) = std::env::var("PQVAULT_WEB_PASSWORD") {
+        if !pw.is_empty() {
+            return Some(pw);
+        }
+    }
+    // 2. Master password from keychain / file cache (local dev)
+    get_master_password().ok().flatten()
+}
+
 pub async fn login_handler(
     State(sessions): State<Sessions>,
     Json(req): Json<LoginRequest>,
 ) -> (StatusCode, Response) {
-    // Get master password from keychain
-    let master_pw = match get_master_password() {
-        Ok(Some(pw)) => pw,
-        _ => {
+    let master_pw = match get_web_password() {
+        Some(pw) => pw,
+        None => {
             let body = Json(AuthResult {
                 ok: false,
                 message: "Vault not initialized".to_string(),
@@ -223,7 +234,8 @@ pub async fn auth_middleware(
     let path = req.uri().path().to_string();
 
     // Public routes that don't need auth
-    if path == "/login"
+    if path == "/health"
+        || path == "/login"
         || path == "/api/auth/login"
         || path == "/api/auth/session"
         || path == "/api/auth/logout"

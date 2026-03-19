@@ -1,0 +1,30 @@
+# PQVault Web Dashboard — Multi-stage build for Cloud Run
+# Serves the web dashboard UI with auth, secret management, and health monitoring
+
+FROM rust:1-bookworm AS builder
+
+WORKDIR /build
+
+# Copy workspace manifests and source
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+
+# Build only the web binary in release mode
+ENV CARGO_BUILD_JOBS=4
+RUN cargo build --release --package pqvault-web
+
+# Runtime stage — minimal image
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/pqvault-web /usr/local/bin/pqvault-web
+
+ENV PORT=8080
+EXPOSE 8080
+
+RUN mkdir -p /root/.pqvault
+
+ENTRYPOINT ["pqvault-web"]
