@@ -6,14 +6,51 @@
 
 use std::sync::Arc;
 
-use axum::{routing::get, Router};
+use axum::{routing::get, Json, Router};
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager, StreamableHttpService,
 };
+use serde::Serialize;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::EnvFilter;
 
+use pqvault_core::vault::VaultHolder;
 use pqvault_unified::PqVaultUnified;
+
+#[derive(Serialize)]
+struct RootStatus {
+    service: &'static str,
+    version: &'static str,
+    status: &'static str,
+    vault_initialized: bool,
+    total_secrets: usize,
+    mcp_endpoint: &'static str,
+    tools: Vec<&'static str>,
+}
+
+/// Root endpoint — JSON vault status for Claude connector discovery.
+async fn root_handler() -> Json<RootStatus> {
+    let mut holder = VaultHolder::new();
+    let (initialized, count) = match holder.get() {
+        Some(v) => (true, v.secrets.len()),
+        None => (false, 0),
+    };
+
+    Json(RootStatus {
+        service: "pqvault-connector",
+        version: env!("CARGO_PKG_VERSION"),
+        status: "ok",
+        vault_initialized: initialized,
+        total_secrets: count,
+        mcp_endpoint: "/mcp",
+        tools: vec![
+            "vault_status", "vault_get", "vault_list", "vault_search",
+            "vault_add", "vault_delete", "vault_import_claude",
+            "vault_project_env", "vault_write_env", "vault_rotate",
+            "vault_health", "vault_dashboard", "vault_usage", "vault_proxy",
+        ],
+    })
+}
 
 /// Health check endpoint for Cloud Run / load balancers.
 async fn health_handler() -> &'static str {
@@ -63,6 +100,7 @@ async fn main() -> anyhow::Result<()> {
         .expose_headers(["mcp-session-id".parse().unwrap()]);
 
     let app = Router::new()
+        .route("/", get(root_handler))
         .route("/health", get(health_handler))
         .nest_service("/mcp", mcp_service)
         .layer(cors);

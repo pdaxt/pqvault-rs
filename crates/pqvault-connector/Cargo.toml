@@ -9,6 +9,7 @@ name = "pqvault-connector"
 path = "src/main.rs"
 
 [dependencies]
+pqvault-core = { workspace = true }
 pqvault-unified = { path = "../pqvault-unified" }
 rmcp = { version = "1.2", features = [
     "server",
